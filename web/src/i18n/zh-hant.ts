@@ -92,6 +92,21 @@ export const zhHant: Translations = {
     webUi: "管理面板",
   },
 
+chat: {
+    modeTerminal: "Terminal",
+    modeChat: "Chat",
+    placeholder: "Type a message...",
+    send: "Send",
+    stop: "Stop",
+    connecting: "Connecting...",
+    disconnected: "Disconnected from server",
+    reconnect: "Reconnect",
+    emptyState: "Start a conversation with Hermes",
+    interrupted: "Interrupted",
+    errorMessage: "Error",
+    thinking: "Thinking",
+  },
+
   status: {
     actionFailed: "動作失敗",
     actionFinished: "已完成",

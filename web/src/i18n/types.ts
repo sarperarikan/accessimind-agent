@@ -108,6 +108,21 @@ export interface Translations {
     webUi: string;
   };
 
+  chat: {
+    modeTerminal: string;
+    modeChat: string;
+    placeholder: string;
+    send: string;
+    stop: string;
+    connecting: string;
+    disconnected: string;
+    reconnect: string;
+    emptyState: string;
+    interrupted: string;
+    errorMessage: string;
+    thinking: string;
+  };
+
   // ── Status page ──
   status: {
     actionFailed: string;

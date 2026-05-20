@@ -92,6 +92,21 @@ export const pt: Translations = {
     webUi: "Web UI",
   },
 
+chat: {
+    modeTerminal: "Terminal",
+    modeChat: "Chat",
+    placeholder: "Type a message...",
+    send: "Send",
+    stop: "Stop",
+    connecting: "Connecting...",
+    disconnected: "Disconnected from server",
+    reconnect: "Reconnect",
+    emptyState: "Start a conversation with Hermes",
+    interrupted: "Interrupted",
+    errorMessage: "Error",
+    thinking: "Thinking",
+  },
+
   status: {
     actionFailed: "Ação falhou",
     actionFinished: "Concluído",

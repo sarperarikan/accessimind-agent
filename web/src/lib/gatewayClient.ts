@@ -116,8 +116,10 @@ export class GatewayClient {
     }
 
     const scheme = location.protocol === "https:" ? "wss:" : "ws:";
+    const pubTok = window.__HERMES_PUBLIC_TOKEN__;
+    const pubQS = pubTok ? `&pub=${encodeURIComponent(pubTok)}` : "";
     const ws = new WebSocket(
-      `${scheme}//${location.host}/api/ws?token=${encodeURIComponent(resolved)}`,
+      `${scheme}//${location.host}/api/ws?token=${encodeURIComponent(resolved)}${pubQS}`,
     );
     this.ws = ws;
 
@@ -231,5 +233,6 @@ export class GatewayClient {
 declare global {
   interface Window {
     __HERMES_SESSION_TOKEN__?: string;
+    __HERMES_PUBLIC_TOKEN__?: string;
   }
 }

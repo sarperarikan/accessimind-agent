@@ -159,6 +159,8 @@ export function ChatSidebar({ channel, className }: ChatSidebarProps) {
 
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
     const qs = new URLSearchParams({ token, channel });
+    const pubTok = window.__HERMES_PUBLIC_TOKEN__;
+    if (pubTok) qs.set("pub", pubTok);
     const ws = new WebSocket(
       `${proto}//${window.location.host}/api/events?${qs.toString()}`,
     );

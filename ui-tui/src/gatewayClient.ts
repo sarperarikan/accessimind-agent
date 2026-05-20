@@ -6,6 +6,8 @@ import { createInterface } from 'node:readline'
 
 import type { GatewayEvent } from './gatewayTypes.js'
 import { CircularBuffer } from './lib/circularBuffer.js'
+import { connectionPool } from './lib/connectionPool.js'
+import { latencyTracker } from './lib/latencyTracker.js'
 
 const MAX_GATEWAY_LOG_LINES = 200
 const MAX_LOG_LINE_BYTES = 4096

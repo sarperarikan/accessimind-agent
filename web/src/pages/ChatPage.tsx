@@ -31,6 +31,8 @@ import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
 
 import { ChatSidebar } from "@/components/ChatSidebar";
+import { ChatModeToggle, type ChatMode } from "@/components/ChatModeToggle";
+import { ChatView } from "@/components/ChatView";
 import { usePageHeader } from "@/contexts/usePageHeader";
 import { useI18n } from "@/i18n";
 import { api } from "@/lib/api";
@@ -44,6 +46,8 @@ function buildWsUrl(
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
   const qs = new URLSearchParams({ token, channel });
   if (resume) qs.set("resume", resume);
+  const pubTok = (window as any).__HERMES_PUBLIC_TOKEN__;
+  if (pubTok) qs.set("pub", pubTok);
   return `${proto}//${window.location.host}/api/pty?${qs.toString()}`;
 }
 
@@ -113,6 +117,12 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
   // collapses the host's box, so ResizeObserver never fires on return).
   const syncMetricsRef = useRef<(() => void) | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
+  // Chat mode: terminal (xterm PTY) vs chat (native React UI)
+  const [chatMode, setChatMode] = useState<ChatMode>(() => {
+    if (typeof window === "undefined") return "terminal";
+    const saved = localStorage.getItem("hermes-chat-mode");
+    return saved === "chat" ? "chat" : "terminal";
+  });
   // Lazy-init: the missing-token check happens at construction so the effect
   // body doesn't have to setState (React 19's set-state-in-effect rule).
   const [banner, setBanner] = useState<string | null>(() =>
@@ -135,6 +145,10 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
   const { setEnd } = usePageHeader();
   const { t } = useI18n();
   const closeMobilePanel = useCallback(() => setMobilePanelOpenRaw(false), []);
+  const handleChatModeChange = useCallback((mode: ChatMode) => {
+    setChatMode(mode);
+    try { localStorage.setItem("hermes-chat-mode", mode); } catch {}
+  }, []);
   const modelToolsLabel = useMemo(
     () => `${t.app.modelToolsSheetTitle} ${t.app.modelToolsSheetSubtitle}`,
     [t.app.modelToolsSheetSubtitle, t.app.modelToolsSheetTitle],
@@ -806,7 +820,19 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
         </div>
       )}
 
-      <div className="flex min-h-0 flex-1 flex-col gap-2 lg:flex-row lg:gap-3">
+      {/* Mode toggle */}
+      <div className="flex items-center justify-between">
+        <ChatModeToggle mode={chatMode} onModeChange={handleChatModeChange} />
+      </div>
+
+      {/* Terminal mode — stays mounted, hidden when not active */}
+      <div
+        className={cn(
+          "flex min-h-0 flex-1 flex-col gap-2 lg:flex-row lg:gap-3",
+          chatMode !== "terminal" && "hidden",
+        )}
+        aria-hidden={chatMode !== "terminal"}
+      >
         <div
           className={cn(
             "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg",
@@ -860,6 +886,11 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
           </div>
         )}
       </div>
+
+      {/* Chat mode — native React UI */}
+      {chatMode === "chat" && (
+        <ChatView channel={channel} isActive={isActive} />
+      )}
       <PluginSlot name="chat:bottom" />
     </div>
   );

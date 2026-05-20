@@ -91,6 +91,21 @@ export const zh: Translations = {
     webUi: "管理面板",
   },
 
+chat: {
+    modeTerminal: "Terminal",
+    modeChat: "Chat",
+    placeholder: "Type a message...",
+    send: "Send",
+    stop: "Stop",
+    connecting: "Connecting...",
+    disconnected: "Disconnected from server",
+    reconnect: "Reconnect",
+    emptyState: "Start a conversation with Hermes",
+    interrupted: "Interrupted",
+    errorMessage: "Error",
+    thinking: "Thinking",
+  },
+
   status: {
     actionFailed: "操作失败",
     actionFinished: "已完成",

@@ -25,6 +25,7 @@ declare global {
   interface Window {
     __HERMES_SESSION_TOKEN__?: string;
     __HERMES_BASE_PATH__?: string;
+    __HERMES_PUBLIC_TOKEN__?: string;
   }
 }
 let _sessionToken: string | null = null;
@@ -36,6 +37,13 @@ function setSessionHeader(headers: Headers, token: string): void {
   }
 }
 
+function appendTokenIfNeeded(url: string): string {
+  const pub = window.__HERMES_PUBLIC_TOKEN__;
+  if (!pub) return url;
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}token=${encodeURIComponent(pub)}`;
+}
+
 export async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
   // Inject the session token into all /api/ requests.
   const headers = new Headers(init?.headers);
@@ -43,7 +51,8 @@ export async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> 
   if (token) {
     setSessionHeader(headers, token);
   }
-  const res = await fetch(`${BASE}${url}`, { ...init, headers });
+  const finalUrl = appendTokenIfNeeded(url);
+  const res = await fetch(`${BASE}${finalUrl}`, { ...init, headers });
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText);
     throw new Error(`${res.status}: ${text}`);
