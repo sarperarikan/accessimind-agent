@@ -99,7 +99,8 @@ _DASHBOARD_EMBEDDED_CHAT_ENABLED = True
 # strong random secret in ~/.hermes/.env (or in the OS environment) and share
 # the URL with ?pub=<token>.  The token is also injected into the SPA so the
 # browser can send it automatically.
-_PUBLIC_ACCESS_TOKEN: str = os.environ.get("HERMES_DASHBOARD_PUBLIC_TOKEN", "").strip() or secrets.token_urlsafe(32)
+_DASHBOARD_PUBLIC_TOKEN_FROM_ENV: str = os.environ.get("HERMES_DASHBOARD_PUBLIC_TOKEN", "").strip()
+_PUBLIC_ACCESS_TOKEN: str = _DASHBOARD_PUBLIC_TOKEN_FROM_ENV or secrets.token_urlsafe(32)
 # Mark whether the current request is carrying a valid public token so the
 # SPA can inject the ephemeral session token automatically.
 _request_had_public_token = False
@@ -194,6 +195,25 @@ def _get_allowed_hosts():
     return frozenset(h.strip() for h in env_val.split(",") if h.strip()) if env_val else frozenset()
 
 
+def _extract_hostname(host_header: str) -> str:
+    """Strip port and brackets from a Host header value and lower-case it.
+
+    Handles the three canonical forms:
+    - ``localhost:9119``  → ``localhost``
+    - ``[::1]:9119``      → ``::1``
+    - ``[::1]``           → ``::1``
+    - ``127.0.0.1``       → ``127.0.0.1``
+    """
+    h = host_header.strip()
+    if h.startswith("["):
+        # IPv6 bracketed — port (if any) follows "]:"
+        close = h.find("]")
+        host_only = h[1:close] if close != -1 else h.strip("[]")
+    else:
+        host_only = h.rsplit(":", 1)[0] if ":" in h else h
+    return host_only.lower()
+
+
 def _is_accepted_host(host_header: str, bound_host: str) -> bool:
     """True if the Host header targets the interface we bound to.
 
@@ -205,23 +225,7 @@ def _is_accepted_host(host_header: str, bound_host: str) -> bool:
     """
     if not host_header:
         return False
-    # Strip port suffix. IPv6 addresses use bracket notation:
-    #   [::1]         — no port
-    #   [::1]:9119    — with port
-    # Plain hosts/v4:
-    #   localhost:9119
-    #   127.0.0.1:9119
-    h = host_header.strip()
-    if h.startswith("["):
-        # IPv6 bracketed — port (if any) follows "]:"
-        close = h.find("]")
-        if close != -1:
-            host_only = h[1:close]  # strip brackets
-        else:
-            host_only = h.strip("[]")
-    else:
-        host_only = h.rsplit(":", 1)[0] if ":" in h else h
-    host_only = host_only.lower()
+    host_only = _extract_hostname(host_header)
 
     # 0.0.0.0 bind means operator explicitly opted into all-interfaces
     # (requires --insecure per web_server.start_server). No Host-layer
@@ -251,18 +255,22 @@ async def host_header_middleware(request: Request, call_next):
     When ``--insecure`` is used (bound to 0.0.0.0/::), all Host values are
     accepted — the operator explicitly opted into network exposure.
     """
-    bound_host = getattr(getattr(app, "state", None), "bound_host", None) or "127.0.0.1"
+    bound_host: str = getattr(app.state, "bound_host", "")
+    if not bound_host:
+        # bound_host should always be set by start_server() before any
+        # request is handled; this fallback only fires in tests or unusual
+        # import-only scenarios.
+        _log.debug(
+            "host_header_middleware: app.state.bound_host not set, "
+            "defaulting to 127.0.0.1 — requests from non-loopback hosts "
+            "will be rejected."
+        )
+        bound_host = "127.0.0.1"
     host_header = request.headers.get("host", "")
     if not _is_accepted_host(host_header, bound_host):
         # Check extra allowed hosts (Cloudflare tunnel, ngrok, etc.)
         extra = _get_allowed_hosts()
-        h = host_header.strip()
-        if h.startswith("["):
-            close = h.find("]")
-            host_only = h[1:close].lower() if close != -1 else h.strip("[]").lower()
-        else:
-            host_only = (h.rsplit(":", 1)[0] if ":" in h else h).lower()
-        if host_only not in extra:
+        if _extract_hostname(host_header) not in extra:
             return JSONResponse(
                 status_code=421,
                 content={"detail": "Misdirected request — host not in allowed list"},
@@ -4437,6 +4445,16 @@ def start_server(
         _log.warning(
             "Binding to %s with --insecure — the dashboard has no robust "
             "authentication. Only use on trusted networks.", host,
+        )
+
+    # Warn when the public token is ephemeral so tunnel operators know
+    # they need to set HERMES_DASHBOARD_PUBLIC_TOKEN for stable URLs.
+    if not _DASHBOARD_PUBLIC_TOKEN_FROM_ENV:
+        _log.warning(
+            "HERMES_DASHBOARD_PUBLIC_TOKEN is not set — a random public token "
+            "was generated for this process. Tunnel ?pub=<token> URLs will break "
+            "after a restart. Set HERMES_DASHBOARD_PUBLIC_TOKEN in ~/.hermes/.env "
+            "to make the token persistent across restarts."
         )
 
     # Record the bound host so host_header_middleware can validate incoming
