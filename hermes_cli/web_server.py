@@ -177,7 +177,7 @@ def _get_allowed_hosts():
         try:
             env_path = get_env_path()
             if env_path.exists():
-                with open(env_path, 'r') as f:
+                with open(env_path, 'r', encoding='utf-8') as f:
                     for line in f:
                         line = line.strip()
                         if line.startswith("HERMES_DASHBOARD_ALLOWED_HOSTS="):

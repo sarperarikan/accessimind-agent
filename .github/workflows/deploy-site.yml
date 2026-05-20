@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   deploy-vercel:
-    if: github.event_name == 'release'
+    if: github.event_name == 'release' && secrets.VERCEL_DEPLOY_HOOK != ''
     runs-on: ubuntu-latest
     steps:
       - name: Trigger Vercel Deploy
