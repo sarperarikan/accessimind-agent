@@ -91,9 +91,15 @@ _SESSION_HEADER_NAME = "X-Hermes-Session-Token"
 _DASHBOARD_EMBEDDED_CHAT_ENABLED = True
 
 # ==== PUBLIC ACCESS TOKEN (for Cloudflare tunnel / URL-based access) ====
-# Hard-coded token injected into the URL (?token=...) for automatic login.
-# Rotated manually when compromised.  NOT a user-password — just a gatekeep.
-_PUBLIC_ACCESS_TOKEN = "AccessiMind2026"
+# Loaded from HERMES_DASHBOARD_PUBLIC_TOKEN env var; falls back to a fresh
+# random token per process when the env var is not set.  This replaces the
+# previous hardcoded value which was committed to the public repo and could
+# be used by anyone to bypass session-token auth on WebSocket endpoints.
+# For persistent tunnel deployments, set HERMES_DASHBOARD_PUBLIC_TOKEN to a
+# strong random secret in ~/.hermes/.env (or in the OS environment) and share
+# the URL with ?pub=<token>.  The token is also injected into the SPA so the
+# browser can send it automatically.
+_PUBLIC_ACCESS_TOKEN: str = os.environ.get("HERMES_DASHBOARD_PUBLIC_TOKEN", "").strip() or secrets.token_urlsafe(32)
 # Mark whether the current request is carrying a valid public token so the
 # SPA can inject the ephemeral session token automatically.
 _request_had_public_token = False
@@ -235,9 +241,32 @@ def _is_accepted_host(host_header: str, bound_host: str) -> bool:
 
 @app.middleware("http")
 async def host_header_middleware(request: Request, call_next):
-    """Host header validation - DISABLED for Cloudflare tunnel compatibility."""
-    # DISABLED: Always pass through to support Cloudflare tunnel scenarios
-    # Original DNS rebinding protection is not needed when using tunnels
+    """Host header validation — defends against DNS rebinding (GHSA-ppp5-vxwm-4cf7).
+
+    Cloudflare/ngrok tunnel hostnames can be whitelisted via
+    ``HERMES_DASHBOARD_ALLOWED_HOSTS`` in ``~/.hermes/.env``:
+
+        HERMES_DASHBOARD_ALLOWED_HOSTS="foo.trycloudflare.com,bar.ngrok.io"
+
+    When ``--insecure`` is used (bound to 0.0.0.0/::), all Host values are
+    accepted — the operator explicitly opted into network exposure.
+    """
+    bound_host = getattr(getattr(app, "state", None), "bound_host", None) or "127.0.0.1"
+    host_header = request.headers.get("host", "")
+    if not _is_accepted_host(host_header, bound_host):
+        # Check extra allowed hosts (Cloudflare tunnel, ngrok, etc.)
+        extra = _get_allowed_hosts()
+        h = host_header.strip()
+        if h.startswith("["):
+            close = h.find("]")
+            host_only = h[1:close].lower() if close != -1 else h.strip("[]").lower()
+        else:
+            host_only = (h.rsplit(":", 1)[0] if ":" in h else h).lower()
+        if host_only not in extra:
+            return JSONResponse(
+                status_code=421,
+                content={"detail": "Misdirected request — host not in allowed list"},
+            )
     return await call_next(request)
 
 
