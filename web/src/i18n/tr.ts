@@ -50,8 +50,8 @@ export const tr: Translations = {
   },
 
   app: {
-    brand: "Hermes Agent",
-    brandShort: "HA",
+    brand: "AccessiMind",
+    brandShort: "AM",
     closeNavigation: "Gezintiyi kapat",
     closeModelTools: "Modeli ve araçları kapat",
     footer: {
@@ -92,6 +92,21 @@ export const tr: Translations = {
     webUi: "Web UI",
   },
 
+chat: {
+    modeTerminal: "Terminal",
+    modeChat: "Sohbet",
+    placeholder: "Mesaj yazın...",
+    send: "Gönder",
+    stop: "Durdur",
+    connecting: "Bağlanıyor...",
+    disconnected: "Sunucu bağlantısı kesildi",
+    reconnect: "Yeniden bağlan",
+    emptyState: "AccessiMind ile konuşma başlatın",
+    interrupted: "Kesildi",
+    errorMessage: "Hata",
+    thinking: "Düşünüyor",
+  },
+
   status: {
     actionFailed: "İşlem başarısız",
     actionFinished: "Tamamlandı",
@@ -120,8 +135,8 @@ export const tr: Translations = {
     starting: "Başlatılıyor",
     startedInBackground: "Arka planda başlatıldı — ilerleme için günlüklere bakın",
     stopped: "Durduruldu",
-    updateHermes: "Hermes'i Güncelle",
-    updatingHermes: "Hermes güncelleniyor…",
+    updateHermes: "AccessiMind'ı Güncelle",
+    updatingHermes: "AccessiMind güncelleniyor…",
     waitingForOutput: "Çıktı bekleniyor…",
   },
 
@@ -266,7 +281,7 @@ export const tr: Translations = {
     enableRuntime: "Etkinleştir",
     forceReinstall: "Yeniden yüklemeyi zorla (önce mevcut klasörü sil)",
     headline:
-      "Hermes eklentilerini keşfedin, yükleyin, etkinleştirin ve güncelleyin (`hermes plugins` ile eşdeğer).",
+      "Eklentileri keşfedin, yükleyin, etkinleştirin ve güncelleyin.",
     identifierLabel: "Git URL veya owner/repo",
     inactive: "pasif",
     installBtn: "Git'ten yükle",
@@ -283,8 +298,8 @@ export const tr: Translations = {
     providersHint:
       "config.yaml'a memory.provider (boş = yerleşik) ve context.engine yazar. Bir sonraki oturumda etkili olur.",
     refreshDashboard: "Pano uzantılarını yeniden tara",
-    removeConfirm: "Bu eklenti ~/.hermes/plugins/ içinden kaldırılsın mı?",
-    removeHint: "Yalnızca ~/.hermes/plugins altındaki kullanıcı tarafından yüklenmiş eklentiler kaldırılabilir.",
+    removeConfirm: "Bu eklenti eklentiler dizininden kaldırılsın mı?",
+    removeHint: "Yalnızca eklentiler dizini altındaki kullanıcı tarafından yüklenmiş eklentiler kaldırılabilir.",
     rescanHeading: "SPA eklenti kayıt defteri",
     rescanHint: "Diske dosya ekledikten sonra yeniden tarayın, böylece pano kenar çubuğu yeni manifestleri algılar.",
     runtimeHeading: "Ağ geçidi çalışma zamanı (YAML eklentileri)",
@@ -306,7 +321,7 @@ export const tr: Translations = {
     all: "Tümü",
     categories: "Kategoriler",
     filters: "Filtreler",
-    noSkills: "Yetenek bulunamadı. Yetenekler ~/.hermes/skills/ adresinden yüklenir",
+    noSkills: "Yetenek bulunamadı. Yetenekler yetenekler dizininden yüklenir",
     noSkillsMatch: "Aramanız veya filtrenizle eşleşen yetenek yok.",
     skillCount: "{count} yetenek{s}",
     resultCount: "{count} sonuç{s}",
@@ -320,7 +335,7 @@ export const tr: Translations = {
   },
 
   config: {
-    configPath: "~/.hermes/config.yaml",
+    configPath: "yapılandırma dosyası",
     filters: "Filtreler",
     sections: "Bölümler",
     exportConfig: "Yapılandırmayı JSON olarak dışa aktar",
@@ -419,7 +434,7 @@ export const tr: Translations = {
   },
 
   language: {
-    switchTo: "İngilizce'ye geç",
+    switchTo: "Dili Değiştir (Türkçe, İngilizce, Çince...)",
   },
 
   theme: {
@@ -430,11 +445,11 @@ export const tr: Translations = {
   achievements: {
     hero: {
       kicker: "Agentic Gamerscore",
-      title: "Hermes Achievements",
+      title: "AccessiMind Başarımları",
       subtitle:
-        "Gerçek oturum geçmişinden kazanılan, koleksiyonluk Hermes rozetleri. Bilinen ama henüz tamamlanmamış başarılar Keşfedildi olarak gösterilir; Gizli başarılar ilk eşleşen davranış görünene kadar saklı kalır.",
+        "Gerçek oturum geçmişinden kazanılan, koleksiyonluk AccessiMind rozetleri. Bilinen ama henüz tamamlanmamış başarılar Keşfedildi olarak gösterilir; Gizli başarılar ilk eşleşen davranış görünene kadar saklı kalır.",
       scan_subtitle:
-        "Hermes oturum geçmişi taranıyor. Büyük geçmişlerde ilk tarama 5–10 saniye sürebilir.",
+        "AccessiMind oturum geçmişi taranıyor. Büyük geçmişlerde ilk tarama 5–10 saniye sürebilir.",
     },
     actions: {
       rescan: "Yeniden tara",
@@ -449,7 +464,7 @@ export const tr: Translations = {
       highest_tier: "En yüksek kademe",
       highest_tier_hint: "Copper → Silver → Gold → Diamond → Olympian",
       latest: "En son",
-      latest_hint_empty: "Hermes'i daha çok çalıştır",
+      latest_hint_empty: "AccessiMind'ı daha çok çalıştır",
       none_yet: "Henüz yok",
     },
     state: {
@@ -480,10 +495,10 @@ export const tr: Translations = {
       tiers_header: "Kademeler",
       secret_header: "Gizli başarılar",
       secret_body:
-        "Sırlar, tetikleyicilerini saklı tutar. Hermes ilgili bir sinyal gördüğünde kart Keşfedildi durumuna geçer ve gereksinimini gösterir.",
+        "Sırlar, tetikleyicilerini saklı tutar. AccessiMind ilgili bir sinyal gördüğünde kart Keşfedildi durumuna geçer ve gereksinimini gösterir.",
       scan_status_header: "Tarama durumu",
       scan_status_body:
-        "Hermes yerel geçmişi bir kez tarıyor; sonra kartlar otomatik olarak görünür. Birkaç saniye sürmesi normaldir, hiçbir şey takılmadı.",
+        "AccessiMind yerel geçmişi bir kez tarıyor; sonra kartlar otomatik olarak görünür. Birkaç saniye sürmesi normaldir, hiçbir şey takılmadı.",
       what_scanned_header: "Neler taranır",
       what_scanned_body:
         "Oturumlar, araç çağrıları, model meta verileri, hatalar, başarılar ve yerel açılma durumu.",
@@ -530,7 +545,7 @@ export const tr: Translations = {
         "X'te paylaş, yeni sekmede önceden doldurulmuş bir gönderi açar. 1200×630 rozetin eklenmesini istiyorsan önce Görseli kopyala'ya tıkla — X, görseli doğrudan tweet düzenleyiciye yapıştırmana izin verir. PNG indir, dosyayı her yerde kullanmak üzere kaydeder.",
       clipboard_unsupported:
         "Bu tarayıcıda panoya görsel kopyalama desteklenmiyor — bunun yerine İndir'i kullanın.",
-      tweet_text: "Just unlocked {tier_part}\"{name}\" in Hermes Agent ☤",
+      tweet_text: "Just unlocked {tier_part}\"{name}\" in AccessiMind",
     },
   },
   kanban: {

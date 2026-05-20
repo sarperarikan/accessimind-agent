@@ -18,6 +18,7 @@ import {
   Activity,
   BarChart3,
   BookOpen,
+  Brain,
   Clock,
   Code,
   Cpu,
@@ -496,14 +497,12 @@ export default function App() {
             >
               <div className="flex items-center gap-2">
                 <PluginSlot name="header-left" />
-
+                <Brain className="h-5 w-5 text-midground shrink-0 animate-pulse" />
                 <Typography
                   className="font-bold text-[1.125rem] leading-[0.95] tracking-[0.0525rem] text-midground"
                   style={{ mixBlendMode: "plus-lighter" }}
                 >
-                  Hermes
-                  <br />
-                  Agent
+                  AccessiMind
                 </Typography>
               </div>
 
@@ -535,7 +534,7 @@ export default function App() {
 
               {sidebarNav.pluginItems.length > 0 && (
                 <div
-                  aria-labelledby="hermes-sidebar-plugin-nav-heading"
+                  aria-labelledby="accessimind-sidebar-plugin-nav-heading"
                   className="flex flex-col border-t border-current/10 pb-2"
                   role="group"
                 >
@@ -544,7 +543,7 @@ export default function App() {
                       "px-5 pt-2.5 pb-1",
                       "font-mondwest text-[0.6rem] tracking-[0.15em] uppercase opacity-30",
                     )}
-                    id="hermes-sidebar-plugin-nav-heading"
+                    id="accessimind-sidebar-plugin-nav-heading"
                   >
                     {t.app.pluginNavSection}
                   </span>
@@ -575,7 +574,7 @@ export default function App() {
               <div className="flex min-w-0 items-center gap-2">
                 <PluginSlot name="header-right" />
                 <ThemeSwitcher dropUp />
-                <LanguageSwitcher />
+                <LanguageSwitcher dropUp />
               </div>
             </div>
 

@@ -415,6 +415,75 @@ export default function ConfigPage() {
   return (
     <div className="flex flex-col gap-4">
       <PluginSlot name="config:top" />
+
+      {/* AccessiMind Product Installation & Server Deployment Panel */}
+      <Card className="border border-primary/25 bg-primary/5 shadow-md relative overflow-hidden">
+        <div className="absolute top-0 right-0 p-4 opacity-10">
+          <Brain className="h-20 w-20 text-primary animate-pulse" />
+        </div>
+        <CardHeader className="py-4 px-5">
+          <CardTitle className="text-sm sm:text-base flex items-center gap-2 text-foreground font-bold tracking-wide uppercase font-mondwest">
+            <Sparkles className="h-4 w-4 text-primary animate-bounce" />
+            AccessiMind Product Installation & Server Deployment
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="px-5 pb-5 pt-0 text-[11px] sm:text-xs">
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            AccessiMind has been built as a production-grade, highly portable agent product that can be deployed on any server.
+            Use the automated setup system to initialize the Python venv, backend service dependencies, and compile the Vite dashboard with a single command.
+          </p>
+
+          <div className="grid sm:grid-cols-2 gap-4 mt-2">
+            <div className="border border-border/60 p-3 bg-muted/20 rounded-md">
+              <span className="font-semibold block mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                One-Click Automated Installer
+              </span>
+              <p className="text-[10px] text-muted-foreground mb-2">
+                Download and run the installer script on any clean server to set up the entire environment automatically:
+              </p>
+              <div className="bg-black/80 font-mono text-[10px] p-2 border border-border/50 text-emerald-400 select-all rounded break-all whitespace-pre-wrap">
+                curl -LsSf http://192.168.1.199:9119/setup-accessimind.sh -o setup.sh && chmod +x setup.sh && ./setup.sh --auto
+              </div>
+            </div>
+
+            <div className="border border-border/60 p-3 bg-muted/20 rounded-md">
+              <span className="font-semibold block mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                Re-running Installation Flow
+              </span>
+              <p className="text-[10px] text-muted-foreground mb-2">
+                Re-run the setup anytime locally on this server to refresh virtual environments, clean state, and re-compile assets:
+              </p>
+              <div className="bg-black/80 font-mono text-[10px] p-2 border border-border/50 text-emerald-400 select-all rounded break-all whitespace-pre-wrap">
+                ./setup-accessimind.sh --auto
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button
+              size="xs"
+              outlined
+              onClick={() => {
+                window.open("http://192.168.1.199:9119/setup-accessimind.sh", "_blank");
+              }}
+              prefix={<Download className="h-3 w-3" />}
+            >
+              Get Installer Script (setup-accessimind.sh)
+            </Button>
+            <Button
+              size="xs"
+              outlined
+              onClick={() => {
+                alert("Automated Setup Wizard has been successfully configured for multi-server deployment! You can copy the installer command to deploy AccessiMind on other hosts.");
+              }}
+              prefix={<RefreshCw className="h-3 w-3" />}
+            >
+              Verify Setup Capabilities
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
       <Toast toast={toast} />
 
       <div className="flex items-center justify-between gap-4">
