@@ -116,6 +116,7 @@ except Exception:
 from tui_gateway.render import make_stream_renderer, render_diff, render_message
 
 _sessions: dict[str, dict] = {}
+_last_default_model: Optional[str] = None
 _methods: dict[str, callable] = {}
 _pending: dict[str, tuple[str, threading.Event]] = {}
 _answers: dict[str, str] = {}
@@ -3004,6 +3005,26 @@ def _(rid, params: dict) -> dict:
     session, err = _sess_nowait(params, rid)
     if err:
         return err
+
+    # Check if the global default model changed on disk. If so, rebuild
+    # the agent for all non-running sessions.
+    global _last_default_model
+    default_model = _resolve_model()
+    if _last_default_model is None:
+        _last_default_model = default_model
+    elif default_model != _last_default_model:
+        logger.info(
+            "Default model changed on disk: %s -> %s. Rebuilding session agents.",
+            _last_default_model, default_model
+        )
+        for s_sid, s_session in _sessions.items():
+            if not s_session.get("running"):
+                s_session["agent"] = None
+                s_session["agent_error"] = None
+                s_session["agent_ready"] = threading.Event()
+                s_session.pop("agent_build_started", None)
+        _last_default_model = default_model
+
     with session["history_lock"]:
         if session.get("running"):
             return _err(rid, 4009, "session busy")

@@ -182,6 +182,14 @@ PROVIDER_REGISTRY: Dict[str, ProviderConfig] = {
         api_key_env_vars=("LM_API_KEY",),
         base_url_env_var="LM_BASE_URL",
     ),
+    "ollama": ProviderConfig(
+        id="ollama",
+        name="Ollama (Local)",
+        auth_type="api_key",
+        inference_base_url="http://127.0.0.1:11434/v1",
+        api_key_env_vars=("OLLAMA_API_KEY",),
+        base_url_env_var="OLLAMA_BASE_URL",
+    ),
     "copilot": ProviderConfig(
         id="copilot",
         name="GitHub Copilot",
@@ -1389,7 +1397,7 @@ def resolve_provider(
         "kilo": "kilocode", "kilo-code": "kilocode", "kilo-gateway": "kilocode",
         "lmstudio": "lmstudio", "lm-studio": "lmstudio", "lm_studio": "lmstudio",
         # Local server aliases — route through the generic custom provider
-        "ollama": "custom", "ollama_cloud": "ollama-cloud",
+        "ollama": "ollama", "ollama_cloud": "ollama-cloud",
         "vllm": "custom", "llamacpp": "custom",
         "llama.cpp": "custom", "llama-cpp": "custom",
     }
@@ -4139,10 +4147,10 @@ def resolve_api_key_provider_credentials(provider_id: str) -> Dict[str, Any]:
     key_source = ""
     api_key, key_source = _resolve_api_key_provider_secret(provider_id, pconfig)
 
-    # No-auth LM Studio: substitute a placeholder so runtime / auxiliary_client
+    # No-auth LM Studio / Ollama: substitute a placeholder so runtime / auxiliary_client
     # see the local server as configured. doctor still reports unconfigured
     # because get_api_key_provider_status uses the raw secret resolver.
-    if not api_key and provider_id == "lmstudio":
+    if not api_key and provider_id in {"lmstudio", "ollama"}:
         api_key = LMSTUDIO_NOAUTH_PLACEHOLDER
         key_source = key_source or "default"
 

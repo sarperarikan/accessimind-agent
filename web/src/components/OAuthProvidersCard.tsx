@@ -196,7 +196,7 @@ export function OAuthProvidersCard({ onError, onSuccess }: Props) {
                       </span>
                     )}
                     {p.status.error && (
-                      <span className="text-xs text-destructive">
+                      <span role="alert" className="text-xs text-destructive">
                         {p.status.error}
                       </span>
                     )}

@@ -1200,6 +1200,19 @@ def list_authenticated_providers(
             live = [current_model]
         curated["lmstudio"] = live
 
+    # Dynamic discovery for local Ollama
+    from hermes_cli.config import get_local_ollama_status
+    ollama_active, ollama_models = get_local_ollama_status()
+    if ollama_active and ollama_models:
+        curated["ollama"] = ollama_models
+    else:
+        # Fallback curated list of common Ollama models to ensure it's selectable even if offline/no models pulled yet
+        fallback_models = ["llama3", "qwen2.5:7b", "qwen2.5-coder", "mistral", "phi3"]
+        if current_provider.strip().lower() == "ollama" and current_model and current_model not in fallback_models:
+            curated["ollama"] = [current_model] + fallback_models
+        else:
+            curated["ollama"] = fallback_models
+
     # --- 1. Check Hermes-mapped providers ---
     for hermes_id, mdev_id in PROVIDER_TO_MODELS_DEV.items():
         # Skip aliases that map to the same models.dev provider (e.g.
@@ -1228,6 +1241,8 @@ def list_authenticated_providers(
 
         # Check if any env var is set
         has_creds = any(os.environ.get(ev) for ev in env_vars)
+        if hermes_id == "gemini":
+            has_creds = True
         if not has_creds:
             try:
                 from hermes_cli.auth import _load_auth_store
@@ -1286,7 +1301,9 @@ def list_authenticated_providers(
 
         # Check if credentials exist
         has_creds = False
-        if overlay.auth_type == "aws_sdk":
+        if hermes_slug == "ollama":
+            has_creds = True
+        elif overlay.auth_type == "aws_sdk":
             has_creds = _has_aws_sdk_creds_for_listing(hermes_slug)
         elif overlay.extra_env_vars:
             has_creds = any(os.environ.get(ev) for ev in overlay.extra_env_vars)

@@ -75,3 +75,10 @@ models-dev-upstream/
 .claude/
 memory/
 tinker-atropos/
+
+# AccessiMind build and package outputs
+accessimind-agent.zip
+web/dist/
+web/dist-electron/
+web/release/
+

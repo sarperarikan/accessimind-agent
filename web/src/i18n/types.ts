@@ -391,7 +391,10 @@ export interface Translations {
       logging: string;
       discord: string;
       auxiliary: string;
+      agent_frameworks?: string;
     };
+    fieldLabels?: Record<string, string>;
+    fieldDescriptions?: Record<string, string>;
   };
 
   // ── Env / Keys page ──

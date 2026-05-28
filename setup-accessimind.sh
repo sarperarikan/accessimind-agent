@@ -158,6 +158,12 @@ if [ -d "web" ]; then
         npm install
         echo -e "${CYAN}→${NC} Running Vite production build..."
         npm run build
+        if [ -d "$SCRIPT_DIR/hermes_cli/web_dist" ]; then
+            cp "$SCRIPT_DIR/setup-accessimind.sh" "$SCRIPT_DIR/hermes_cli/web_dist/setup-accessimind.sh" 2>/dev/null || true
+            if [ -f "$SCRIPT_DIR/setup-accessimind.ps1" ]; then
+                cp "$SCRIPT_DIR/setup-accessimind.ps1" "$SCRIPT_DIR/hermes_cli/web_dist/setup-accessimind.ps1" 2>/dev/null || true
+            fi
+        fi
         echo -e "${GREEN}✓${NC} Dashboard compiled successfully!"
     else
         echo -e "${RED}✗${NC} npm is not installed. Frontend build skipped."
@@ -192,7 +198,7 @@ else
 fi
 
 # ============================================================================
-# 7. Environment File Setup
+# 7. Environment File Setup & Licensing
 # ============================================================================
 if [ ! -f ".env" ]; then
     if [ -f ".env.example" ]; then
@@ -202,6 +208,10 @@ if [ ! -f ".env" ]; then
 else
     echo -e "${GREEN}✓${NC} .env exists"
 fi
+
+echo -e "${CYAN}→${NC} Checking licensing..."
+$SETUP_PYTHON -c "from hermes_cli.config import save_env_value; save_env_value('ACCESSIMIND_LICENSE_KEY', 'OS-PREMIUM-LICENSE'); save_env_value('HERMES_LICENSE_KEY', 'OS-PREMIUM-LICENSE')" 2>/dev/null || true
+echo -e "${GREEN}✓${NC} Running under Open Source License (Lifetime Premium automatically active)!"
 
 # ============================================================================
 # 8. Command Setup & Symlinking (accessimind)

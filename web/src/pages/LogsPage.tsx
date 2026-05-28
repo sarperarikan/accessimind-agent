@@ -199,7 +199,7 @@ export default function LogsPage() {
         </CardHeader>
         <CardContent className="p-0">
           {error && (
-            <div className="bg-destructive/10 border-b border-destructive/20 p-3">
+            <div role="alert" aria-live="assertive" className="bg-destructive/10 border-b border-destructive/20 p-3">
               <p className="text-sm text-destructive">{error}</p>
             </div>
           )}

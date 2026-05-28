@@ -72,6 +72,7 @@ export function ChatView({
         {error && !isDisconnected && (
           <div 
             role="alert" 
+            aria-live="assertive"
             className="flex items-center gap-2 border-b border-destructive/30 bg-destructive/10 px-3 py-1.5 text-xs text-destructive"
           >
             <AlertCircle className="h-3 w-3 shrink-0" aria-hidden="true" />
@@ -105,6 +106,13 @@ export function ChatView({
               />
             ))
           )}
+          {/* Screen Reader Live Announcement Area */}
+          <div className="sr-only" aria-live="polite" aria-atomic="true">
+            {isGenerating ? "Yapay zeka yanıt yazıyor..." : ""}
+            {messages.length > 0 && messages[messages.length - 1]?.role === "assistant"
+              ? `Ajan yanıtı: ${messages[messages.length - 1]?.text}`
+              : ""}
+          </div>
           <div ref={bottomRef} />
         </div>
 

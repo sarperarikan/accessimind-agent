@@ -371,7 +371,10 @@ chat: {
       logging: "Logging",
       discord: "Discord",
       auxiliary: "Auxiliary",
+      agent_frameworks: "Agentic Frameworks",
     },
+    fieldLabels: {},
+    fieldDescriptions: {}
   },
 
   env: {

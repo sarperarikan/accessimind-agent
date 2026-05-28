@@ -524,7 +524,7 @@ export default function AnalyticsPage() {
       )}
 
       {showTokens && error && (
-        <Card>
+        <Card role="alert" aria-live="assertive">
           <CardContent className="py-6">
             <p className="text-sm text-destructive text-center">{error}</p>
           </CardContent>

@@ -121,6 +121,40 @@ export default function ConfigPage() {
   const [configPath, setConfigPath] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState<string>("");
   const [confirmReset, setConfirmReset] = useState(false);
+  const [setupOS, setSetupOS] = useState<'linux' | 'windows'>('linux');
+  const [licenseStatus, setLicenseStatus] = useState<{ activated: boolean; license_key: string; license_info: any } | null>(null);
+  const [newLicenseKey, setNewLicenseKey] = useState("");
+  const [activating, setActivating] = useState(false);
+
+  const fetchLicenseStatus = () => {
+    api.getLicenseStatus()
+      .then(setLicenseStatus)
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    fetchLicenseStatus();
+  }, []);
+
+  const handleActivateLicense = async () => {
+    if (!newLicenseKey.trim() || newLicenseKey.trim().length < 8) {
+      showToast("Lütfen geçerli bir lisans anahtarı girin.", "error");
+      return;
+    }
+    setActivating(true);
+    try {
+      const res = await api.activateLicense({ license_key: newLicenseKey.trim() });
+      if (res.success) {
+        showToast("Lisans başarıyla aktifleştirildi!", "success");
+        setNewLicenseKey("");
+        fetchLicenseStatus();
+      }
+    } catch (e: any) {
+      showToast(`Lisans aktivasyonu başarısız: ${e.message || e}`, "error");
+    } finally {
+      setActivating(false);
+    }
+  };
   const { toast, showToast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { t } = useI18n();
@@ -264,6 +298,7 @@ export default function ConfigPage() {
     try {
       await api.saveConfig(config);
       showToast(t.config.configSaved, "success");
+      window.dispatchEvent(new CustomEvent("accessimind-config-saved"));
     } catch (e) {
       showToast(`${t.config.failedToSave}: ${e}`, "error");
     } finally {
@@ -276,6 +311,7 @@ export default function ConfigPage() {
     try {
       await api.saveConfigRaw(yamlText);
       showToast(t.config.yamlConfigSaved, "success");
+      window.dispatchEvent(new CustomEvent("accessimind-config-saved"));
       api
         .getConfig()
         .then(setConfig)
@@ -412,6 +448,8 @@ export default function ConfigPage() {
     });
   };
 
+  const setupOrigin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:9119';
+
   return (
     <div className="flex flex-col gap-4">
       <PluginSlot name="config:top" />
@@ -433,43 +471,107 @@ export default function ConfigPage() {
             Use the automated setup system to initialize the Python venv, backend service dependencies, and compile the Vite dashboard with a single command.
           </p>
 
-          <div className="grid sm:grid-cols-2 gap-4 mt-2">
-            <div className="border border-border/60 p-3 bg-muted/20 rounded-md">
-              <span className="font-semibold block mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
-                One-Click Automated Installer
-              </span>
-              <p className="text-[10px] text-muted-foreground mb-2">
-                Download and run the installer script on any clean server to set up the entire environment automatically:
-              </p>
-              <div className="bg-black/80 font-mono text-[10px] p-2 border border-border/50 text-emerald-400 select-all rounded break-all whitespace-pre-wrap">
-                curl -LsSf http://192.168.1.199:9119/setup-accessimind.sh -o setup.sh && chmod +x setup.sh && ./setup.sh --auto
-              </div>
-            </div>
-
-            <div className="border border-border/60 p-3 bg-muted/20 rounded-md">
-              <span className="font-semibold block mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
-                Re-running Installation Flow
-              </span>
-              <p className="text-[10px] text-muted-foreground mb-2">
-                Re-run the setup anytime locally on this server to refresh virtual environments, clean state, and re-compile assets:
-              </p>
-              <div className="bg-black/80 font-mono text-[10px] p-2 border border-border/50 text-emerald-400 select-all rounded break-all whitespace-pre-wrap">
-                ./setup-accessimind.sh --auto
-              </div>
-            </div>
+          <div className="flex gap-1.5 mb-4 bg-muted/40 p-1 rounded-md max-w-[280px] border border-border/40">
+            <button
+              onClick={() => setSetupOS('linux')}
+              className={`flex-1 text-[10px] font-bold uppercase tracking-wider py-1 px-3 rounded transition-all cursor-pointer ${
+                setupOS === 'linux'
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Linux / macOS
+            </button>
+            <button
+              onClick={() => setSetupOS('windows')}
+              className={`flex-1 text-[10px] font-bold uppercase tracking-wider py-1 px-3 rounded transition-all cursor-pointer ${
+                setupOS === 'windows'
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Windows (PowerShell)
+            </button>
           </div>
 
+          {setupOS === 'linux' ? (
+            <div className="grid sm:grid-cols-2 gap-4 mt-2">
+              <div className="border border-border/60 p-3 bg-muted/20 rounded-md">
+                <span className="font-semibold block mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                  One-Click Automated Installer (Linux / macOS)
+                </span>
+                <p className="text-[10px] text-muted-foreground mb-2">
+                  Download and run the installer script on any clean server to set up the entire environment automatically:
+                </p>
+                <div className="bg-black/80 font-mono text-[10px] p-2 border border-border/50 text-emerald-400 select-all rounded break-all whitespace-pre-wrap font-semibold">
+                  {`curl -LsSf ${setupOrigin}/setup-accessimind.sh -o setup.sh && chmod +x setup.sh && ./setup.sh --auto`}
+                </div>
+              </div>
+
+              <div className="border border-border/60 p-3 bg-muted/20 rounded-md">
+                <span className="font-semibold block mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Re-running Installation Flow
+                </span>
+                <p className="text-[10px] text-muted-foreground mb-2">
+                  Re-run the setup anytime locally on this server to refresh virtual environments, clean state, and re-compile assets:
+                </p>
+                <div className="bg-black/80 font-mono text-[10px] p-2 border border-border/50 text-emerald-400 select-all rounded break-all whitespace-pre-wrap font-semibold">
+                  ./setup-accessimind.sh --auto
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="grid sm:grid-cols-2 gap-4 mt-2">
+              <div className="border border-border/60 p-3 bg-muted/20 rounded-md">
+                <span className="font-semibold block mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                  One-Click Automated Installer (Windows PowerShell)
+                </span>
+                <p className="text-[10px] text-muted-foreground mb-2">
+                  Download and run the installer script via PowerShell to set up the entire environment automatically:
+                </p>
+                <div className="bg-black/80 font-mono text-[10px] p-2 border border-border/50 text-emerald-400 select-all rounded break-all whitespace-pre-wrap font-semibold">
+                  {`powershell -ExecutionPolicy Bypass -c "irm ${setupOrigin}/setup-accessimind.ps1 | iex"`}
+                </div>
+              </div>
+
+              <div className="border border-border/60 p-3 bg-muted/20 rounded-md">
+                <span className="font-semibold block mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Re-running Installation Flow
+                </span>
+                <p className="text-[10px] text-muted-foreground mb-2">
+                  Re-run the setup anytime locally on this server to refresh virtual environments, clean state, and re-compile assets:
+                </p>
+                <div className="bg-black/80 font-mono text-[10px] p-2 border border-border/50 text-emerald-400 select-all rounded break-all whitespace-pre-wrap font-semibold">
+                  .\setup-accessimind.ps1 -Auto
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="mt-4 flex flex-wrap gap-2">
-            <Button
-              size="xs"
-              outlined
-              onClick={() => {
-                window.open("http://192.168.1.199:9119/setup-accessimind.sh", "_blank");
-              }}
-              prefix={<Download className="h-3 w-3" />}
-            >
-              Get Installer Script (setup-accessimind.sh)
-            </Button>
+            {setupOS === 'linux' ? (
+              <Button
+                size="xs"
+                outlined
+                onClick={() => {
+                  window.open(`${setupOrigin}/setup-accessimind.sh`, "_blank");
+                }}
+                prefix={<Download className="h-3 w-3" />}
+              >
+                Get Installer Script (setup-accessimind.sh)
+              </Button>
+            ) : (
+              <Button
+                size="xs"
+                outlined
+                onClick={() => {
+                  window.open(`${setupOrigin}/setup-accessimind.ps1`, "_blank");
+                }}
+                prefix={<Download className="h-3 w-3" />}
+              >
+                Get Installer Script (setup-accessimind.ps1)
+              </Button>
+            )}
             <Button
               size="xs"
               outlined
@@ -481,6 +583,81 @@ export default function ConfigPage() {
               Verify Setup Capabilities
             </Button>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* License & Product Activation Card */}
+      <Card className="border border-primary/20 bg-muted/10 relative overflow-hidden">
+        <CardHeader className="py-4 px-5">
+          <CardTitle className="text-sm sm:text-base flex items-center gap-2 text-foreground font-bold tracking-wide uppercase font-mondwest">
+            <Lock className="h-4 w-4 text-primary" />
+            Product License & Activation Management
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="px-5 pb-5 pt-0 text-[11px] sm:text-xs">
+          {licenseStatus ? (
+            <div className="grid sm:grid-cols-2 gap-6">
+              <div className="space-y-3">
+                <div>
+                  <span className="font-semibold block text-[10px] uppercase tracking-wider text-muted-foreground">Lisans Durumu</span>
+                  <div className="mt-1 flex items-center gap-2">
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                      licenseStatus.activated 
+                        ? 'bg-emerald-950/40 text-emerald-400 border border-emerald-800/40' 
+                        : 'bg-red-950/40 text-red-400 border border-red-800/40'
+                    }`}>
+                      {licenseStatus.activated ? "AKTİF" : "LİSANSSIZ"}
+                    </span>
+                    <span className="text-muted-foreground">
+                      {licenseStatus.license_info?.license_type}
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  <span className="font-semibold block text-[10px] uppercase tracking-wider text-muted-foreground">Aktif Lisans Anahtarı</span>
+                  <span className="font-mono text-foreground mt-1 block">
+                    {licenseStatus.license_key || "Bulunamadı"}
+                  </span>
+                </div>
+
+                <div>
+                  <span className="font-semibold block text-[10px] uppercase tracking-wider text-muted-foreground">Destek Durumu</span>
+                  <span className="text-foreground mt-1 block">
+                    {licenseStatus.license_info?.support_active ? "Etkin (Ömür Boyu)" : "Etkin Değil"}
+                  </span>
+                </div>
+              </div>
+
+              <div className="space-y-3 border-t sm:border-t-0 sm:border-l border-border/40 pt-4 sm:pt-0 sm:pl-6">
+                <span className="font-semibold block text-[10px] uppercase tracking-wider text-muted-foreground">Yeni Lisans Anahtarı Tanımla</span>
+                <p className="text-[10px] text-muted-foreground">
+                  Farklı bir lisans anahtarı veya satın alma kodu (Purchase Code) girmek için aşağıdaki kutuyu kullanın:
+                </p>
+                <div className="flex gap-2">
+                  <Input
+                    type="text"
+                    placeholder="örn: XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX"
+                    value={newLicenseKey}
+                    onChange={(e) => setNewLicenseKey(e.target.value)}
+                    className="h-8 text-xs font-sans font-semibold tracking-wider flex-1"
+                  />
+                  <Button
+                    size="xs"
+                    onClick={handleActivateLicense}
+                    disabled={activating}
+                    className="h-8 uppercase font-bold tracking-wider"
+                  >
+                    {activating ? "AKTİFLEŞTİRİLİYOR" : "AKTİFLEŞTİR"}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-center py-4">
+              <Spinner className="text-xs text-primary" />
+            </div>
+          )}
         </CardContent>
       </Card>
 

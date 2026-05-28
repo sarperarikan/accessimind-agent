@@ -68,6 +68,8 @@ import ProfilesPage from "@/pages/ProfilesPage";
 import SkillsPage from "@/pages/SkillsPage";
 import PluginsPage from "@/pages/PluginsPage";
 import ChatPage from "@/pages/ChatPage";
+import LoginPage from "@/pages/LoginPage";
+import SetupPage from "@/pages/SetupPage";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { ThemeSwitcher } from "@/components/ThemeSwitcher";
 import { useI18n } from "@/i18n";
@@ -306,6 +308,38 @@ function buildRoutes(
   return routes;
 }
 
+function applyAccessibility(display: any) {
+  const root = document.documentElement;
+  if (!root) return;
+  
+  // Contrast
+  root.classList.remove("a11y-high-contrast");
+  if (display?.accessibility_contrast === "high-contrast") {
+    root.classList.add("a11y-high-contrast");
+  }
+  
+  // Text size
+  const textSize = display?.accessibility_text_scale || "md";
+  root.classList.remove("a11y-text-sm", "a11y-text-md", "a11y-text-lg", "a11y-text-xl");
+  root.classList.add(`a11y-text-${textSize}`);
+  
+  // Font
+  root.classList.remove("a11y-font-dyslexic");
+  if (display?.accessibility_font_style === "dyslexic") {
+    root.classList.add("a11y-font-dyslexic");
+  }
+}
+
+// Synchronously run on file load to avoid flash of unstyled page
+try {
+  const cached = localStorage.getItem("accessimind_a11y_settings");
+  if (cached) {
+    applyAccessibility(JSON.parse(cached));
+  }
+} catch (e) {
+  console.error("Failed to parse cached accessimind_a11y_settings:", e);
+}
+
 export default function App() {
   const { t } = useI18n();
   const { pathname } = useLocation();
@@ -318,12 +352,85 @@ export default function App() {
   const isChatRoute = normalizedPath === "/chat";
   const embeddedChat = isDashboardEmbeddedChatEnabled();
 
+  const [currentUser, setCurrentUser] = useState<{ id: string; username: string; role: string } | null>(null);
+  const [setupCompleted, setSetupCompleted] = useState<boolean | null>(null);
+  const [loadingUser, setLoadingUser] = useState(true);
+
+  // Load and apply accessibility settings globally
+  useEffect(() => {
+    const fetchAndApply = () => {
+      api.getConfigPublic()
+        .then((cfg) => {
+          const display = cfg?.display || {};
+          applyAccessibility(display);
+          localStorage.setItem("accessimind_a11y_settings", JSON.stringify(display));
+        })
+        .catch((err) => {
+          console.error("Failed to load public accessibility settings:", err);
+        });
+    };
+
+    fetchAndApply();
+
+    window.addEventListener("accessimind-config-saved", fetchAndApply);
+    return () => {
+      window.removeEventListener("accessimind-config-saved", fetchAndApply);
+    };
+  }, []);
+
+  useEffect(() => {
+    const jwt = localStorage.getItem("hermes_jwt");
+    const hasInjectedToken = !!(window.__HERMES_SESSION_TOKEN__ || window.__HERMES_PUBLIC_TOKEN__);
+    
+    api.getSetupStatus()
+      .then((setupRes) => {
+        setSetupCompleted(setupRes.setup_completed);
+        
+        if (!setupRes.setup_completed) {
+          setLoadingUser(false);
+          return;
+        }
+
+        if (jwt || hasInjectedToken) {
+          api.getMe()
+            .then((res) => {
+              setCurrentUser(res.user);
+            })
+            .catch((err) => {
+              console.error("Auth check failed:", err);
+              if (jwt) {
+                localStorage.removeItem("hermes_jwt");
+              }
+            })
+            .finally(() => {
+              setLoadingUser(false);
+            });
+        } else {
+          setLoadingUser(false);
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to check setup status:", err);
+        setLoadingUser(false);
+      });
+  }, []);
+
+  const handleLogout = () => {
+    localStorage.removeItem("hermes_jwt");
+    setCurrentUser(null);
+  };
+
   // `dashboard.show_token_analytics` gates the Analytics nav item.  The
   // page itself remains reachable by URL (it renders an explanation when
   // the flag is off — see AnalyticsPage), but hiding the nav entry avoids
   // surfacing misleading token/cost numbers in the sidebar.  Default off.
   const [showTokenAnalytics, setShowTokenAnalytics] = useState(false);
   useEffect(() => {
+    if (!currentUser) return;
+    if (currentUser.role !== "admin") {
+      setShowTokenAnalytics(false);
+      return;
+    }
     api
       .getConfig()
       .then((cfg) => {
@@ -331,7 +438,7 @@ export default function App() {
         setShowTokenAnalytics(dash.show_token_analytics === true);
       })
       .catch(() => setShowTokenAnalytics(false));
-  }, []);
+  }, [currentUser]);
 
   // A plugin can replace the built-in /chat page via `tab.override: "/chat"`
   // in its manifest.  When one does, `buildRoutes` already swaps the route
@@ -364,20 +471,42 @@ export default function App() {
   );
 
   const builtinNav = useMemo(() => {
-    const base = embeddedChat
+    let base = embeddedChat
       ? [CHAT_NAV_ITEM, ...BUILTIN_NAV_REST]
       : BUILTIN_NAV_REST;
-    return showTokenAnalytics ? base : base.filter((n) => n.path !== "/analytics");
-  }, [embeddedChat, showTokenAnalytics]);
+    if (currentUser && currentUser.role !== "admin") {
+      base = base.filter((n) => n.path === "/sessions" || n.path === "/chat" || n.path === "/docs");
+    } else {
+      if (!showTokenAnalytics) {
+        base = base.filter((n) => n.path !== "/analytics");
+      }
+    }
+    return base;
+  }, [embeddedChat, showTokenAnalytics, currentUser]);
 
-  const sidebarNav = useMemo(
-    () => partitionSidebarNav(builtinNav, manifests),
-    [builtinNav, manifests],
-  );
+  const sidebarNav = useMemo(() => {
+    const partitioned = partitionSidebarNav(builtinNav, manifests);
+    if (currentUser && currentUser.role !== "admin") {
+      return { coreItems: partitioned.coreItems, pluginItems: [] };
+    }
+    return partitioned;
+  }, [builtinNav, manifests, currentUser]);
+
   const routes = useMemo(
     () => buildRoutes(builtinRoutes, manifests),
     [builtinRoutes, manifests],
   );
+
+  const allowedRoutes = useMemo(() => {
+    if (!currentUser) return [];
+    if (currentUser.role === "admin") return routes;
+    return routes.filter(({ path }) => 
+      path === "/" || 
+      path === "/sessions" || 
+      path === "/chat" || 
+      path === "/docs"
+    );
+  }, [routes, currentUser]);
   const pluginTabMeta = useMemo(
     () =>
       manifests
@@ -414,11 +543,36 @@ export default function App() {
     return () => mql.removeEventListener("change", onChange);
   }, []);
 
+  if (loadingUser) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-[#041c1c] text-[#ffe6cb] font-mondwest uppercase select-none">
+        <div className="flex flex-col items-center gap-4">
+          <Spinner className="text-[2rem] text-[#ffe6cb]" />
+          <span className="text-sm tracking-[0.2em]">Sistem Yükleniyor...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (setupCompleted === false) {
+    return <SetupPage onSetupSuccess={(user) => { setSetupCompleted(true); setCurrentUser(user); }} />;
+  }
+
+  if (!currentUser) {
+    return <LoginPage onLoginSuccess={(user) => setCurrentUser(user)} />;
+  }
+
   return (
     <div
       data-layout-variant={layoutVariant}
       className="font-mondwest flex h-dvh max-h-dvh min-h-0 flex-col overflow-hidden bg-black uppercase text-midground antialiased"
     >
+      <a 
+        href="#main-content" 
+        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[9999] focus:bg-[#ffe6cb] focus:text-[#041c1c] focus:px-4 focus:py-2 focus:font-bold focus:border border-[#ffe6cb] focus:outline-none focus:ring-2 focus:ring-[#ffe6cb] focus:ring-offset-2 focus:ring-offset-[#041c1c] rounded transition-all tracking-wider text-xs"
+      >
+        Ana İçeriğe Geç (Skip to Main)
+      </a>
       <SelectionSwitcher />
       <Backdrop />
       <PluginSlot name="backdrop" />
@@ -562,7 +716,28 @@ export default function App() {
               )}
             </nav>
 
-            <SidebarSystemActions onNavigate={closeMobile} />
+            {currentUser && currentUser.role === "admin" && (
+              <SidebarSystemActions onNavigate={closeMobile} />
+            )}
+
+            {currentUser && (
+              <div className="flex shrink-0 items-center justify-between border-t border-[#ffe6cb]/10 px-5 py-3 bg-[#ffe6cb]/2">
+                <div className="flex flex-col min-w-0">
+                  <span className="font-mondwest text-[0.8rem] tracking-[0.1rem] text-[#ffe6cb] truncate">
+                    {currentUser.username}
+                  </span>
+                  <span className="font-mondwest text-[0.6rem] tracking-[0.1rem] text-[#ffe6cb]/40 uppercase">
+                    {currentUser.role === "admin" ? "Yönetici" : "Standart"}
+                  </span>
+                </div>
+                <button
+                  onClick={handleLogout}
+                  className="font-mondwest text-[0.7rem] tracking-[0.1em] text-red-500 hover:text-red-400 transition-colors cursor-pointer border border-red-500/20 px-2 py-0.5 rounded hover:bg-red-500/10"
+                >
+                  Çıkış
+                </button>
+              </div>
+            )}
 
             <div
               className={cn(
@@ -594,14 +769,16 @@ export default function App() {
             >
               <PluginSlot name="pre-main" />
               <div
+                id="main-content"
+                tabIndex={-1}
                 className={cn(
-                  "w-full min-w-0",
+                  "w-full min-w-0 outline-none",
                   (isDocsRoute || isChatRoute) &&
                     "min-h-0 flex flex-1 flex-col",
                 )}
               >
                 <Routes>
-                  {routes.map(({ key, path, element }) => (
+                  {allowedRoutes.map(({ key, path, element }) => (
                     <Route key={key} path={path} element={element} />
                   ))}
                   <Route

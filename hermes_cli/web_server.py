@@ -13,6 +13,7 @@ import asyncio
 import hmac
 import importlib.util
 import json
+import jwt
 import logging
 import os
 import secrets
@@ -123,11 +124,142 @@ _PUBLIC_API_PATHS: frozenset = frozenset({
     "/api/status",
     "/api/config/defaults",
     "/api/config/schema",
+    "/api/config/public",
     "/api/model/info",
     "/api/dashboard/themes",
     "/api/dashboard/plugins",
     "/api/dashboard/plugins/rescan",
+    "/api/auth/login",
+    "/api/auth/register",
+    "/api/setup/status",
+    "/api/setup/complete",
+    "/api/license/status",
+    "/api/license/activate",
 })
+
+# ==== JWT Token Management ====
+_jwt_secret_cached: Optional[str] = None
+
+def _get_jwt_secret() -> str:
+    global _jwt_secret_cached
+    if _jwt_secret_cached:
+        return _jwt_secret_cached
+    
+    load_env()
+    secret = os.environ.get("HERMES_JWT_SECRET", "")
+    if not secret:
+        secret = secrets.token_urlsafe(32)
+        try:
+            save_env_value("HERMES_JWT_SECRET", secret)
+            os.environ["HERMES_JWT_SECRET"] = secret
+            _log.info("Generated new HERMES_JWT_SECRET and saved to .env")
+        except Exception as exc:
+            _log.warning("Failed to save HERMES_JWT_SECRET to .env: %s", exc)
+    _jwt_secret_cached = secret
+    return secret
+
+def create_jwt_token(payload: dict, expires_in: int = 86400 * 7) -> str:
+    """Create a signed JWT token valid for the given number of seconds."""
+    secret = _get_jwt_secret()
+    payload = dict(payload)
+    payload["exp"] = int(time.time()) + expires_in
+    return jwt.encode(payload, secret, algorithm="HS256")
+
+def decode_jwt_token(token: str) -> Optional[dict]:
+    """Decode and validate a signed JWT token."""
+    secret = _get_jwt_secret()
+    try:
+        return jwt.decode(token, secret, algorithms=["HS256"])
+    except jwt.PyJWTError:
+        return None
+
+def _authenticate_ws(ws: WebSocket) -> Optional[dict]:
+    """Validate token query param. Returns user dict on success, None on failure."""
+    token = ws.query_params.get("token", "")
+    pub = ws.query_params.get("pub", "")
+
+    # 1. Try JWT validation
+    if token and token != _SESSION_TOKEN:
+        payload = decode_jwt_token(token)
+        if payload:
+            return {
+                "id": payload.get("id"),
+                "username": payload.get("username"),
+                "role": payload.get("role", "standard")
+            }
+
+    # 2. Try legacy session token validation
+    if token and hmac.compare_digest(token.encode(), _SESSION_TOKEN.encode()):
+        return {
+            "id": "admin",
+            "username": "admin",
+            "role": "admin"
+        }
+
+    # 3. Try public access token validation
+    if pub == _PUBLIC_ACCESS_TOKEN:
+        return {
+            "id": "admin",
+            "username": "admin",
+            "role": "admin"
+        }
+
+    return None
+
+_STANDARD_ALLOWED_PATHS = {
+    "/api/auth/me",
+    "/api/sessions",
+    "/api/sessions/search",
+    "/api/dashboard/theme",
+}
+
+def _is_standard_allowed(path: str) -> bool:
+    if path in _STANDARD_ALLOWED_PATHS:
+        return True
+    if path.startswith("/api/sessions/"):
+        if path == "/api/sessions/search":
+            return True
+        return True
+    return False
+
+def _check_session_ownership(db, session_id: str, request: Request) -> str:
+    """Resolve and verify standard user owns the session. Raises 403 or 404."""
+    user = getattr(request.state, "user", None)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    sid = db.resolve_session_id(session_id)
+    if not sid:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    if user["role"] == "admin":
+        return sid
+        
+    session = db.get_session(sid)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    if session.get("user_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="Forbidden")
+        
+    return sid
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+class RegisterRequest(BaseModel):
+    username: str
+    password: str
+
+class LicenseActivateRequest(BaseModel):
+    license_key: str
+
+class SetupCompleteRequest(BaseModel):
+    admin_username: str
+    admin_password: str
+    api_keys: Dict[str, str]
+    license_key: str
 
 
 def _has_valid_session_token(request: Request) -> bool:
@@ -243,14 +375,70 @@ async def host_header_middleware(request: Request, call_next):
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
-    """Require the session token on all /api/ routes except the public list."""
+    """Require session token or JWT on all /api/ routes except public list."""
     path = request.url.path
     if path.startswith("/api/") and path not in _PUBLIC_API_PATHS:
-        if not _has_valid_session_token(request):
+        auth_header = request.headers.get("authorization", "")
+        user = None
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+            if token != _SESSION_TOKEN:
+                payload = decode_jwt_token(token)
+                if payload:
+                    user = {
+                        "id": payload.get("id"),
+                        "username": payload.get("username"),
+                        "role": payload.get("role", "standard")
+                    }
+        
+        if not user:
+            if _has_valid_session_token(request):
+                user = {
+                    "id": "admin",
+                    "username": "admin",
+                    "role": "admin"
+                }
+
+        if not user:
             return JSONResponse(
                 status_code=401,
                 content={"detail": "Unauthorized"},
             )
+        
+        request.state.user = user
+
+        if user["role"] != "admin":
+            if not _is_standard_allowed(path):
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "Forbidden"},
+                )
+    else:
+        request.state.user = None
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+            if token != _SESSION_TOKEN:
+                payload = decode_jwt_token(token)
+                if payload:
+                    request.state.user = {
+                        "id": payload.get("id"),
+                        "username": payload.get("username"),
+                        "role": payload.get("role", "standard")
+                    }
+            elif _has_valid_session_token(request):
+                request.state.user = {
+                    "id": "admin",
+                    "username": "admin",
+                    "role": "admin"
+                }
+        elif _has_valid_session_token(request):
+            request.state.user = {
+                "id": "admin",
+                "username": "admin",
+                "role": "admin"
+            }
+
     return await call_next(request)
 
 
@@ -317,6 +505,21 @@ _SCHEMA_OVERRIDES: Dict[str, Dict[str, Any]] = {
         "description": "Input behavior while agent is running",
         "options": ["interrupt", "queue", "steer"],
     },
+    "display.accessibility_contrast": {
+        "type": "select",
+        "description": "Accessibility: Color contrast mode",
+        "options": ["standard", "high-contrast"],
+    },
+    "display.accessibility_text_scale": {
+        "type": "select",
+        "description": "Accessibility: Font sizing scale",
+        "options": ["sm", "md", "lg", "xl"],
+    },
+    "display.accessibility_font_style": {
+        "type": "select",
+        "description": "Accessibility: Typography font family style",
+        "options": ["standard", "dyslexic"],
+    },
     "memory.provider": {
         "type": "select",
         "description": "Memory provider plugin",
@@ -352,6 +555,35 @@ _SCHEMA_OVERRIDES: Dict[str, Dict[str, Any]] = {
         "description": "Reasoning effort for delegated subagents",
         "options": ["", "low", "medium", "high"],
     },
+    "agent_frameworks.active_framework": {
+        "type": "select",
+        "description": "Active AI Agent Framework Backend",
+        "options": ["accessimind", "langchain", "crewai", "autogen"],
+    },
+    "agent_frameworks.langchain_endpoint": {
+        "type": "string",
+        "description": "LangChain API Gateway Endpoint",
+    },
+    "agent_frameworks.langchain_script": {
+        "type": "string",
+        "description": "LangChain Local Orchestration Script Path (optional)",
+    },
+    "agent_frameworks.crewai_endpoint": {
+        "type": "string",
+        "description": "CrewAI API Gateway Endpoint",
+    },
+    "agent_frameworks.crewai_script": {
+        "type": "string",
+        "description": "CrewAI Local Orchestration Script Path (optional)",
+    },
+    "agent_frameworks.autogen_endpoint": {
+        "type": "string",
+        "description": "AutoGen API Gateway Endpoint",
+    },
+    "agent_frameworks.autogen_script": {
+        "type": "string",
+        "description": "AutoGen Local Orchestration Script Path (optional)",
+    },
 }
 
 # Categories with fewer fields get merged into "general" to avoid tab sprawl.
@@ -376,7 +608,7 @@ _CATEGORY_MERGE: Dict[str, str] = {
 
 # Display order for tabs — unlisted categories sort alphabetically after these.
 _CATEGORY_ORDER = [
-    "general", "agent", "terminal", "display", "delegation",
+    "general", "agent", "agent_frameworks", "terminal", "display", "delegation",
     "memory", "compression", "security", "browser", "voice",
     "tts", "stt", "logging", "discord", "auxiliary",
 ]
@@ -540,6 +772,189 @@ def _probe_gateway_health() -> tuple[bool, dict | None]:
         except Exception:
             continue
     return False, None
+
+
+@app.post("/api/auth/login")
+async def login_endpoint(body: LoginRequest):
+    load_env()
+    if os.environ.get("HERMES_SETUP_COMPLETE") != "true":
+        raise HTTPException(status_code=400, detail="Kurulum tamamlanmamış. Lütfen kurulum adımlarını takip edin.")
+    
+    from hermes_state import SessionDB, verify_password
+    db = SessionDB()
+    try:
+        user = db.get_user_by_username(body.username)
+        if not user or not verify_password(body.password, user["password_hash"]):
+            raise HTTPException(status_code=400, detail="Geçersiz kullanıcı adı veya şifre")
+        
+        token = create_jwt_token({
+            "id": user["id"],
+            "username": user["username"],
+            "role": user["role"]
+        })
+        return {
+            "token": token,
+            "user": {
+                "id": user["id"],
+                "username": user["username"],
+                "role": user["role"]
+            }
+        }
+    finally:
+        db.close()
+
+
+@app.post("/api/auth/register")
+async def register_endpoint(body: RegisterRequest):
+    from hermes_state import SessionDB, hash_password
+    if len(body.username.strip()) < 3:
+        raise HTTPException(status_code=400, detail="Kullanıcı adı en az 3 karakter olmalıdır")
+    if len(body.password) < 6:
+        raise HTTPException(status_code=400, detail="Şifre en az 6 karakter olmalıdır")
+        
+    db = SessionDB()
+    try:
+        existing = db.get_user_by_username(body.username)
+        if existing:
+            raise HTTPException(status_code=400, detail="Bu kullanıcı adı zaten alınmış")
+            
+        pass_hash = hash_password(body.password)
+        user_id = db.create_user(body.username, pass_hash, "standard")
+        
+        token = create_jwt_token({
+            "id": user_id,
+            "username": body.username,
+            "role": "standard"
+        })
+        return {
+            "token": token,
+            "user": {
+                "id": user_id,
+                "username": body.username,
+                "role": "standard"
+            }
+        }
+    finally:
+        db.close()
+
+
+@app.get("/api/auth/me")
+async def me_endpoint(request: Request):
+    user = getattr(request.state, "user", None)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    return {"user": user}
+
+
+@app.get("/api/setup/status")
+async def get_setup_status():
+    load_env()
+    setup_completed = os.environ.get("HERMES_SETUP_COMPLETE") == "true"
+    return {"setup_completed": setup_completed}
+
+
+@app.post("/api/setup/complete")
+async def setup_complete_endpoint(body: SetupCompleteRequest):
+    load_env()
+    # 1. Validate License key format
+    if not body.license_key or len(body.license_key.strip()) < 8:
+        raise HTTPException(status_code=400, detail="Geçersiz lisans anahtarı. Lisans anahtarı en az 8 karakter olmalıdır.")
+    
+    # 2. Write setup environment variables
+    for key, val in body.api_keys.items():
+        if val.strip():
+            save_env_value(key, val.strip())
+            os.environ[key] = val.strip()
+            
+    # 3. Create Admin user
+    from hermes_state import SessionDB, hash_password
+    db = SessionDB()
+    try:
+        # Delete existing admin or username collision to prevent unique constraint failures
+        cursor = db._conn.cursor()
+        cursor.execute("DELETE FROM users WHERE role = 'admin' OR username = ?", (body.admin_username,))
+        db._conn.commit()
+        
+        pass_hash = hash_password(body.admin_password)
+        admin_id = db.create_user(body.admin_username, pass_hash, "admin")
+        
+        # Save setup status and license key to environment
+        save_env_value("HERMES_LICENSE_KEY", body.license_key.strip())
+        os.environ["HERMES_LICENSE_KEY"] = body.license_key.strip()
+        
+        save_env_value("HERMES_SETUP_COMPLETE", "true")
+        os.environ["HERMES_SETUP_COMPLETE"] = "true"
+        
+        token = create_jwt_token({
+            "id": admin_id,
+            "username": body.admin_username,
+            "role": "admin"
+        })
+        return {
+            "success": True,
+            "token": token,
+            "user": {
+                "id": admin_id,
+                "username": body.admin_username,
+                "role": "admin"
+            }
+        }
+    finally:
+        db.close()
+
+
+@app.get("/api/license/status")
+async def get_license_status():
+    load_env()
+    from hermes_cli.licensing import is_license_active, get_license_tier
+    license_key = os.environ.get("ACCESSIMIND_LICENSE_KEY", os.environ.get("HERMES_LICENSE_KEY", ""))
+    activated = is_license_active()
+    
+    redacted_key = ""
+    if license_key:
+        k = license_key.strip()
+        if len(k) > 8:
+            redacted_key = k[:4] + "*" * (len(k) - 8) + k[-4:]
+        else:
+            redacted_key = "****"
+            
+    return {
+        "activated": activated,
+        "license_key": redacted_key,
+        "license_info": {
+            "license_type": get_license_tier(),
+            "buyer": "Premium AGI Customer" if activated else "Trial User",
+            "support_active": True if activated else False,
+            "expires_at": "Lifetime Activation" if activated else "N/A"
+        }
+    }
+
+
+@app.post("/api/license/activate")
+async def license_activate_endpoint(body: LicenseActivateRequest):
+    from hermes_cli.licensing import validate_license_key
+    if not body.license_key or not validate_license_key(body.license_key):
+        raise HTTPException(
+            status_code=400, 
+            detail="Geçersiz lisans anahtarı. Lütfen geçerli bir AccessiMind lisans anahtarı girin. (Test için AM-PREM-AGI1-1008 kullanabilirsiniz)"
+        )
+    
+    load_env()
+    save_env_value("ACCESSIMIND_LICENSE_KEY", body.license_key.strip())
+    save_env_value("HERMES_LICENSE_KEY", body.license_key.strip())
+    os.environ["ACCESSIMIND_LICENSE_KEY"] = body.license_key.strip()
+    os.environ["HERMES_LICENSE_KEY"] = body.license_key.strip()
+    
+    return {
+        "success": True,
+        "license_info": {
+            "license_type": "Premium AGI License",
+            "buyer": "Premium AGI Customer",
+            "support_active": True,
+            "expires_at": "Lifetime Activation"
+        }
+    }
+
 
 
 @app.get("/api/status")
@@ -781,13 +1196,15 @@ async def get_action_status(name: str, lines: int = 200):
 
 
 @app.get("/api/sessions")
-async def get_sessions(limit: int = 20, offset: int = 0):
+async def get_sessions(request: Request, limit: int = 20, offset: int = 0):
     try:
         from hermes_state import SessionDB
         db = SessionDB()
         try:
-            sessions = db.list_sessions_rich(limit=limit, offset=offset)
-            total = db.session_count()
+            user = getattr(request.state, "user", None)
+            user_id = user["id"] if user and user["role"] != "admin" else None
+            sessions = db.list_sessions_rich(limit=limit, offset=offset, user_id=user_id)
+            total = db.session_count(user_id=user_id)
             now = time.time()
             for s in sessions:
                 s["is_active"] = (
@@ -803,7 +1220,7 @@ async def get_sessions(limit: int = 20, offset: int = 0):
 
 
 @app.get("/api/sessions/search")
-async def search_sessions(q: str = "", limit: int = 20):
+async def search_sessions(request: Request, q: str = "", limit: int = 20):
     """Full-text search across session message content using FTS5."""
     if not q or not q.strip():
         return {"results": []}
@@ -811,6 +1228,8 @@ async def search_sessions(q: str = "", limit: int = 20):
         from hermes_state import SessionDB
         db = SessionDB()
         try:
+            user = getattr(request.state, "user", None)
+            user_id = user["id"] if user and user["role"] != "admin" else None
             # Auto-add prefix wildcards so partial words match
             # e.g. "nimb" → "nimb*" matches "nimby"
             # Preserve quoted phrases and existing wildcards as-is
@@ -822,7 +1241,7 @@ async def search_sessions(q: str = "", limit: int = 20):
                 else:
                     terms.append(token + "*")
             prefix_query = " ".join(terms)
-            matches = db.search_messages(query=prefix_query, limit=limit)
+            matches = db.search_messages(query=prefix_query, limit=limit, user_id=user_id)
             # Group by session_id — return unique sessions with their best snippet
             seen: dict = {}
             for m in matches:
@@ -882,6 +1301,19 @@ async def get_defaults():
 @app.get("/api/config/schema")
 async def get_schema():
     return {"fields": CONFIG_SCHEMA, "category_order": _CATEGORY_ORDER}
+
+
+@app.get("/api/config/public")
+async def get_config_public():
+    config = load_config()
+    display = config.get("display", {})
+    return {
+        "display": {
+            "accessibility_contrast": display.get("accessibility_contrast", "standard"),
+            "accessibility_text_scale": display.get("accessibility_text_scale", "md"),
+            "accessibility_font_style": display.get("accessibility_font_style", "standard"),
+        }
+    }
 
 
 _EMPTY_MODEL_INFO: dict = {
@@ -1000,14 +1432,115 @@ def get_model_options():
     dashboard Models page can render the picker without a live chat session.
     The response shape matches ``model.options`` 1:1 so ``ModelPickerDialog``
     can share the same types.
+
+    When the Ollama provider is present in the results, we additionally probe
+    ``/api/ollama/models`` to inject the live installed-model list so the
+    Quick Switch dropdown shows every model the user actually has.
     """
     try:
         from hermes_cli.inventory import build_models_payload, load_picker_context
 
-        return build_models_payload(load_picker_context(), max_models=50)
+        payload = build_models_payload(load_picker_context(), max_models=200)
+
+        # Inject live Ollama models if Ollama provider is in the list
+        try:
+            ollama_data = _probe_ollama()
+            if ollama_data["running"] and ollama_data["models"]:
+                for prov in payload.get("providers", []):
+                    if prov.get("slug", "").lower() in ("ollama", "custom"):
+                        # Merge live models at the front
+                        existing = prov.get("models") or []
+                        live = ollama_data["models"]
+                        merged = live + [m for m in existing if m not in live]
+                        prov["models"] = merged
+                        prov["total_models"] = len(merged)
+                        prov["ollama_running"] = True
+                        prov["ollama_url"] = ollama_data["url"]
+                # If ollama provider row is missing entirely, add it
+                slugs = {p.get("slug", "").lower() for p in payload.get("providers", [])}
+                if "ollama" not in slugs:
+                    payload.setdefault("providers", []).insert(0, {
+                        "slug": "ollama",
+                        "name": "Ollama (Local)",
+                        "is_current": payload.get("provider", "") in ("ollama", "custom"),
+                        "is_user_defined": False,
+                        "models": ollama_data["models"],
+                        "total_models": len(ollama_data["models"]),
+                        "ollama_running": True,
+                        "ollama_url": ollama_data["url"],
+                    })
+        except Exception:
+            _log.debug("Ollama probe in /api/model/options failed (not critical)", exc_info=True)
+
+        return payload
     except Exception:
         _log.exception("GET /api/model/options failed")
         raise HTTPException(status_code=500, detail="Failed to list model options")
+
+
+def _probe_ollama(timeout: float = 3.0) -> dict:
+    """Probe local Ollama for installed models via GET /api/tags.
+
+    Returns ``{"running": bool, "models": [str], "url": str}``.
+    Never raises — returns ``running=False`` on any error.
+    """
+    ollama_url = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
+    try:
+        req = urllib.request.Request(
+            f"{ollama_url}/api/tags",
+            headers={"Accept": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read())
+            models = [m["name"] for m in data.get("models", [])]
+            return {"running": True, "models": models, "url": ollama_url}
+    except Exception:
+        return {"running": False, "models": [], "url": ollama_url}
+
+
+@app.get("/api/ollama/models")
+def get_ollama_models():
+    """Probe local Ollama for installed models.
+
+    Returns ``{"running": bool, "models": [str], "url": str}``.
+    Safe to call even when Ollama is not installed.
+    """
+    return _probe_ollama()
+
+
+@app.get("/api/setup/status")
+def get_setup_status():
+    """Return a snapshot of the setup state for the first-run wizard.
+
+    Shape::
+
+        {
+          "backend_ok": true,
+          "ollama": {"running": bool, "models": [str], "url": str},
+          "gemini_key_set": bool,
+          "openai_key_set": bool,
+          "any_key_set": bool,
+        }
+    """
+    load_env()
+    gemini_key = bool(
+        os.environ.get("GEMINI_API_KEY", "").strip()
+        or os.environ.get("GOOGLE_API_KEY", "").strip()
+    )
+    openai_key = bool(os.environ.get("OPENAI_API_KEY", "").strip())
+    anthropic_key = bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())
+    any_key = gemini_key or openai_key or anthropic_key
+    ollama = _probe_ollama()
+    return {
+        "backend_ok": True,
+        "ollama": ollama,
+        "gemini_key_set": gemini_key,
+        "openai_key_set": openai_key,
+        "anthropic_key_set": anthropic_key,
+        "any_key_set": any_key,
+    }
+
+
 
 
 @app.get("/api/model/auxiliary")
@@ -2412,22 +2945,26 @@ def _session_latest_descendant(session_id: str):
         db.close()
 
 @app.get("/api/sessions/{session_id}")
-async def get_session_detail(session_id: str):
+async def get_session_detail(session_id: str, request: Request):
     from hermes_state import SessionDB
     db = SessionDB()
     try:
-        sid = db.resolve_session_id(session_id)
-        session = db.get_session(sid) if sid else None
-        if not session:
-            raise HTTPException(status_code=404, detail="Session not found")
+        sid = _check_session_ownership(db, session_id, request)
+        session = db.get_session(sid)
         return session
     finally:
         db.close()
 
 
-
 @app.get("/api/sessions/{session_id}/latest-descendant")
-async def get_session_latest_descendant(session_id: str):
+async def get_session_latest_descendant(session_id: str, request: Request):
+    from hermes_state import SessionDB
+    db = SessionDB()
+    try:
+        _check_session_ownership(db, session_id, request)
+    finally:
+        db.close()
+
     latest, path = _session_latest_descendant(session_id)
     if not latest:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -2439,13 +2976,11 @@ async def get_session_latest_descendant(session_id: str):
     }
 
 @app.get("/api/sessions/{session_id}/messages")
-async def get_session_messages(session_id: str):
+async def get_session_messages(session_id: str, request: Request):
     from hermes_state import SessionDB
     db = SessionDB()
     try:
-        sid = db.resolve_session_id(session_id)
-        if not sid:
-            raise HTTPException(status_code=404, detail="Session not found")
+        sid = _check_session_ownership(db, session_id, request)
         messages = db.get_messages(sid)
         return {"session_id": sid, "messages": messages}
     finally:
@@ -2453,11 +2988,12 @@ async def get_session_messages(session_id: str):
 
 
 @app.delete("/api/sessions/{session_id}")
-async def delete_session_endpoint(session_id: str):
+async def delete_session_endpoint(session_id: str, request: Request):
     from hermes_state import SessionDB
     db = SessionDB()
     try:
-        if not db.delete_session(session_id):
+        sid = _check_session_ownership(db, session_id, request)
+        if not db.delete_session(sid):
             raise HTTPException(status_code=404, detail="Session not found")
         return {"ok": True}
     finally:
@@ -3179,6 +3715,8 @@ def _ws_client_is_allowed(ws: "WebSocket") -> bool:
     client_host = ws.client.host if ws.client else ""
     if not client_host:
         return True
+    if client_host.startswith("::ffff:"):
+        client_host = client_host[7:]
     return client_host in _LOOPBACK_HOSTS
 
 # Per-channel subscriber registry used by /api/pub (PTY-side gateway → dashboard)
@@ -3192,6 +3730,7 @@ _event_lock = asyncio.Lock()
 def _resolve_chat_argv(
     resume: Optional[str] = None,
     sidecar_url: Optional[str] = None,
+    user_id: Optional[str] = None,
 ) -> tuple[list[str], Optional[str], Optional[dict]]:
     """Resolve the argv + cwd + env for the chat PTY.
 
@@ -3229,6 +3768,9 @@ def _resolve_chat_argv(
 
     if sidecar_url:
         env["HERMES_TUI_SIDECAR_URL"] = sidecar_url
+
+    if user_id:
+        env["HERMES_USER_ID"] = user_id
 
     return list(argv), str(cwd) if cwd else None, env
 
@@ -3275,13 +3817,10 @@ async def pty_ws(ws: WebSocket) -> None:
         return
 
     # --- auth + loopback check (before accept so we can close cleanly) ---
-    token = ws.query_params.get("token", "")
-    pub   = ws.query_params.get("pub", "")
-    expected = _SESSION_TOKEN
-    if not hmac.compare_digest(token.encode(), expected.encode()):
-        if pub != _PUBLIC_ACCESS_TOKEN:
-            await ws.close(code=4401)
-            return
+    user = _authenticate_ws(ws)
+    if not user:
+        await ws.close(code=4401)
+        return
 
     if not _ws_client_is_allowed(ws):
         await ws.close(code=4403)
@@ -3303,11 +3842,22 @@ async def pty_ws(ws: WebSocket) -> None:
 
     # --- spawn PTY ------------------------------------------------------
     resume = ws.query_params.get("resume") or None
+    if resume and user["role"] != "admin":
+        from hermes_state import SessionDB
+        db = SessionDB()
+        try:
+            session = db.get_session(resume)
+            if not session or session.get("user_id") != user["id"]:
+                await ws.close(code=4403)
+                return
+        finally:
+            db.close()
+
     channel = _channel_or_close_code(ws)
     sidecar_url = _build_sidecar_url(channel) if channel else None
 
     try:
-        argv, cwd, env = _resolve_chat_argv(resume=resume, sidecar_url=sidecar_url)
+        argv, cwd, env = _resolve_chat_argv(resume=resume, sidecar_url=sidecar_url, user_id=user["id"])
     except SystemExit as exc:
         # _make_tui_argv calls sys.exit(1) when node/npm is missing.
         await ws.send_text(f"\r\n\x1b[31mChat unavailable: {exc}\x1b[0m\r\n")
@@ -3397,12 +3947,10 @@ async def gateway_ws(ws: WebSocket) -> None:
         await ws.close(code=4403)
         return
 
-    token = ws.query_params.get("token", "")
-    pub   = ws.query_params.get("pub", "")
-    if not hmac.compare_digest(token.encode(), _SESSION_TOKEN.encode()):
-        if pub != _PUBLIC_ACCESS_TOKEN:
-            await ws.close(code=4401)
-            return
+    user = _authenticate_ws(ws)
+    if not user:
+        await ws.close(code=4401)
+        return
 
     if not _ws_client_is_allowed(ws):
         await ws.close(code=4403)
@@ -3431,8 +3979,8 @@ async def pub_ws(ws: WebSocket) -> None:
         await ws.close(code=4403)
         return
 
-    token = ws.query_params.get("token", "")
-    if not hmac.compare_digest(token.encode(), _SESSION_TOKEN.encode()):
+    user = _authenticate_ws(ws)
+    if not user:
         await ws.close(code=4401)
         return
 
@@ -3460,12 +4008,10 @@ async def events_ws(ws: WebSocket) -> None:
         await ws.close(code=4403)
         return
 
-    token = ws.query_params.get("token", "")
-    pub   = ws.query_params.get("pub", "")
-    if not hmac.compare_digest(token.encode(), _SESSION_TOKEN.encode()):
-        if pub != _PUBLIC_ACCESS_TOKEN:
-            await ws.close(code=4401)
-            return
+    user = _authenticate_ws(ws)
+    if not user:
+        await ws.close(code=4401)
+        return
 
     if not _ws_client_is_allowed(ws):
         await ws.close(code=4403)

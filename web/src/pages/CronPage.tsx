@@ -398,7 +398,7 @@ export default function CronPage() {
                     </span>
                   </div>
                   {job.last_error && (
-                    <p className="text-xs text-destructive mt-1">
+                    <p role="alert" className="text-xs text-destructive mt-1">
                       {job.last_error}
                     </p>
                   )}

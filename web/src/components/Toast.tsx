@@ -22,8 +22,8 @@ export function Toast({ toast }: { toast: { message: string; type: "success" | "
   // (e.g. <main> has `relative z-2`, which would trap z-50 below the header's z-40).
   return createPortal(
     <div
-      role="status"
-      aria-live="polite"
+      role={current.type === "error" ? "alert" : "status"}
+      aria-live={current.type === "error" ? "assertive" : "polite"}
       className={`fixed top-16 right-4 z-50 border px-4 py-2.5 font-courier text-xs tracking-wider uppercase backdrop-blur-sm ${
         current.type === "success"
           ? "bg-success/15 text-success border-success/30"

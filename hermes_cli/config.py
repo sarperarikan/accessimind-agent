@@ -912,6 +912,9 @@ DEFAULT_CONFIG = {
         "personality": "kawaii",
         "resume_display": "full",
         "busy_input_mode": "interrupt",  # interrupt | queue | steer
+        "accessibility_contrast": "standard",
+        "accessibility_text_scale": "md",
+        "accessibility_font_style": "standard",
         # When true, `hermes --tui` auto-resumes the most recent human-
         # facing session on launch instead of forging a fresh one.
         # Mirrors `hermes -c` muscle memory.  Default off so existing
@@ -1569,6 +1572,16 @@ DEFAULT_CONFIG = {
         "servers": {},
     },
 
+    "agent_frameworks": {
+        "active_framework": "accessimind",
+        "langchain_endpoint": "http://127.0.0.1:8000/langchain",
+        "langchain_script": "",
+        "crewai_endpoint": "http://127.0.0.1:8000/crewai",
+        "crewai_script": "",
+        "autogen_endpoint": "http://127.0.0.1:8000/autogen",
+        "autogen_script": "",
+    },
+
     # Config schema version - bump this when adding new required fields
     "_config_version": 23,
 }
@@ -1633,6 +1646,22 @@ OPTIONAL_ENV_VARS = {
     "GEMINI_BASE_URL": {
         "description": "Google AI Studio base URL override",
         "prompt": "Gemini base URL (leave empty for default)",
+        "url": None,
+        "password": False,
+        "category": "provider",
+        "advanced": True,
+    },
+    "OLLAMA_API_KEY": {
+        "description": "Ollama Cloud API key / token (ignore for local Ollama)",
+        "prompt": "Ollama API key",
+        "url": "https://ollama.com",
+        "password": True,
+        "category": "provider",
+        "advanced": True,
+    },
+    "OLLAMA_BASE_URL": {
+        "description": "Ollama base URL override (e.g. http://localhost:11434/v1 for local, or https://ollama.com/v1 for Cloud)",
+        "prompt": "Ollama base URL (leave empty for default)",
         "url": None,
         "password": False,
         "category": "provider",
@@ -1930,22 +1959,7 @@ OPTIONAL_ENV_VARS = {
         "category": "provider",
         "advanced": True,
     },
-    "OLLAMA_API_KEY": {
-        "description": "Ollama Cloud API key (ollama.com — cloud-hosted open models)",
-        "prompt": "Ollama Cloud API key",
-        "url": "https://ollama.com/settings",
-        "password": True,
-        "category": "provider",
-        "advanced": True,
-    },
-    "OLLAMA_BASE_URL": {
-        "description": "Ollama Cloud base URL override (default: https://ollama.com/v1)",
-        "prompt": "Ollama base URL (leave empty for default)",
-        "url": None,
-        "password": False,
-        "category": "provider",
-        "advanced": True,
-    },
+
     "XIAOMI_API_KEY": {
         "description": "Xiaomi MiMo API key for MiMo models (mimo-v2.5-pro, mimo-v2.5, mimo-v2-pro, mimo-v2-omni, mimo-v2-flash)",
         "prompt": "Xiaomi MiMo API Key",
@@ -4110,6 +4124,57 @@ def cfg_get(cfg: Optional[Dict[str, Any]], *keys: str, default: Any = None) -> A
 
 
 
+_OLLAMA_STATUS_CACHE: dict = {}  # "status": (is_active, models_list, timestamp)
+
+def get_local_ollama_status() -> Tuple[bool, List[str]]:
+    """Check if a local Ollama server is running and return its models.
+
+    Uses a 5-second TTL cache to prevent CLI command latency.
+    """
+    import urllib.request
+    import json
+    import time
+
+    global _OLLAMA_STATUS_CACHE
+    now = time.time()
+
+    # Check cache (5s TTL)
+    if "status" in _OLLAMA_STATUS_CACHE:
+        is_active, models, cached_at = _OLLAMA_STATUS_CACHE["status"]
+        if now - cached_at < 5.0:
+            return is_active, models
+
+    # Try calling Ollama tags API (respects OLLAMA_BASE_URL)
+    base_url = (os.getenv("OLLAMA_BASE_URL") or "http://127.0.0.1:11434/v1").strip()
+    if not base_url:
+        base_url = "http://127.0.0.1:11434/v1"
+    base_url_normalized = base_url.rstrip("/")
+    if base_url_normalized.endswith("/v1"):
+        api_base = base_url_normalized[:-3]
+    else:
+        api_base = base_url_normalized
+    url = f"{api_base}/api/tags"
+
+    try:
+        req = urllib.request.Request(url, method="GET")
+        with urllib.request.urlopen(req, timeout=1.0) as response:
+            if response.status == 200:
+                data = json.loads(response.read().decode("utf-8"))
+                models = []
+                if isinstance(data, dict) and "models" in data:
+                    for m in data["models"]:
+                        if isinstance(m, dict) and "name" in m:
+                            models.append(m["name"])
+                _OLLAMA_STATUS_CACHE["status"] = (True, models, now)
+                return True, models
+    except Exception:
+        pass
+
+    _OLLAMA_STATUS_CACHE["status"] = (False, [], now)
+    return False, []
+
+
+
 def read_raw_config() -> Dict[str, Any]:
     """Read ~/.hermes/config.yaml as-is, without merging defaults or migrating.
 
@@ -4193,6 +4258,26 @@ def load_config() -> Dict[str, Any]:
 
         normalized = _normalize_root_model_keys(_normalize_max_turns_config(config))
         expanded = _expand_env_vars(normalized)
+
+        # Automatic local Ollama fallback if no model is configured
+        model_sec = expanded.get("model")
+        if not isinstance(model_sec, dict):
+            model_sec = {"default": model_sec} if model_sec else {}
+            expanded["model"] = model_sec
+
+        default_model = model_sec.get("default")
+        provider = model_sec.get("provider")
+
+        if not default_model and not provider:
+            is_active, ollama_models = get_local_ollama_status()
+            if is_active and ollama_models:
+                model_sec["default"] = ollama_models[0]
+            else:
+                model_sec["default"] = "llama3"
+            model_sec["provider"] = "ollama"
+            model_sec["base_url"] = "http://127.0.0.1:11434/v1"
+            model_sec["api_mode"] = "chat_completions"
+
         _LAST_EXPANDED_CONFIG_BY_PATH[path_key] = copy.deepcopy(expanded)
         if cache_key is not None:
             _LOAD_CONFIG_CACHE[path_key] = (cache_key[0], cache_key[1], copy.deepcopy(expanded))

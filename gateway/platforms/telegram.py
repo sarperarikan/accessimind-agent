@@ -2625,6 +2625,41 @@ class TelegramAdapter(BasePlatformAdapter):
         query_thread_id = getattr(query_message, "message_thread_id", None)
         query_user_name = getattr(query.from_user, "first_name", None)
 
+        # --- Start menu btn_* callbacks ---
+        if data.startswith("btn_"):
+            caller_id = str(getattr(query.from_user, "id", ""))
+            if not self._is_callback_user_authorized(
+                caller_id,
+                chat_id=query_chat_id,
+                chat_type=str(query_chat_type) if query_chat_type is not None else None,
+                thread_id=str(query_thread_id) if query_thread_id is not None else None,
+                user_name=query_user_name,
+            ):
+                await query.answer(text="⛔ You are not authorized to use this option.")
+                return
+
+            cmd_map = {
+                "btn_new": "/new",
+                "btn_status": "/status",
+                "btn_help": "/help",
+                "btn_license": "/license",
+            }
+            cmd_text = cmd_map.get(data)
+            if not cmd_text:
+                await query.answer(text="Invalid button selection.")
+                return
+
+            await query.answer(text=f"Selected: {cmd_text}")
+
+            event = self._build_message_event(query.message, MessageType.COMMAND, update_id=update.update_id)
+            event.text = cmd_text
+            if query.from_user:
+                event.source.user_id = str(query.from_user.id)
+                event.source.user_name = query.from_user.full_name or query.from_user.username or "User"
+
+            await self.handle_message(event)
+            return
+
         # --- Model picker callbacks ---
         if data.startswith(("mp:", "mm:", "mb", "mx", "mg:")):
             chat_id = str(query.message.chat_id) if query.message else None
@@ -4015,7 +4050,48 @@ class TelegramAdapter(BasePlatformAdapter):
             return
         if not self._should_process_message(update.message, is_command=True):
             return
-        
+
+        cmd_text = (update.message.text or "").strip().split()
+        if cmd_text and cmd_text[0].lower() == "/start":
+            try:
+                from hermes_cli.licensing import get_license_tier
+                tier = get_license_tier()
+            except ImportError:
+                tier = "Trial Mode"
+
+            text = (
+                f"🧠 <b>AccessiMind Agent Platform</b> 🧠\n"
+                f"Welcome to the state-of-the-art Agentic Accessibility & AGI Assistant.\n\n"
+                f"<b>License Status:</b> <code>{tier}</code>\n\n"
+                f"Select an option below to interact with the agent:"
+            )
+
+            keyboard = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("🆕 New Session", callback_data="btn_new"),
+                    InlineKeyboardButton("📊 Status", callback_data="btn_status"),
+                ],
+                [
+                    InlineKeyboardButton("❓ Help", callback_data="btn_help"),
+                    InlineKeyboardButton("🔑 License", callback_data="btn_license"),
+                ]
+            ])
+
+            chat_id = update.message.chat_id
+            thread_id = update.message.message_thread_id
+
+            send_kwargs = {
+                "chat_id": chat_id,
+                "text": text,
+                "parse_mode": ParseMode.HTML,
+                "reply_markup": keyboard,
+            }
+            if thread_id is not None:
+                send_kwargs.update(self._thread_kwargs_for_send(str(chat_id), str(thread_id)))
+
+            await self._send_message_with_thread_fallback(**send_kwargs)
+            return
+
         event = self._build_message_event(update.message, MessageType.COMMAND, update_id=update.update_id)
         await self.handle_message(event)
 

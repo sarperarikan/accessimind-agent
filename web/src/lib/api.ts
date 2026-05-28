@@ -5,8 +5,17 @@
 // incoming ``X-Forwarded-Prefix`` header so the SPA can address its own
 // ``/api/...`` and ``/dashboard-plugins/...`` URLs correctly without a
 // rebuild. Empty string means "served at root".
+//
+// Special case: when running inside Electron (file:// protocol), relative
+// URLs like /api/auth/login resolve against file:// and fail with
+// "Failed to fetch". In that case, use the Python backend's absolute URL.
+const ELECTRON_BACKEND = "http://127.0.0.1:9119";
+
 function readBasePath(): string {
   if (typeof window === "undefined") return "";
+  // Electron loads index.html from file:// — relative /api/ calls fail.
+  // Use the absolute backend address instead.
+  if (window.location.protocol === "file:") return ELECTRON_BACKEND;
   const raw = window.__HERMES_BASE_PATH__ ?? "";
   if (!raw) return "";
   // Normalise: ensure leading slash, strip trailing slash.
@@ -51,6 +60,10 @@ export async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> 
   if (token) {
     setSessionHeader(headers, token);
   }
+  const jwt = localStorage.getItem("hermes_jwt");
+  if (jwt) {
+    headers.set("Authorization", `Bearer ${jwt}`);
+  }
   const finalUrl = appendTokenIfNeeded(url);
   const res = await fetch(`${BASE}${finalUrl}`, { ...init, headers });
   if (!res.ok) {
@@ -71,6 +84,19 @@ async function getSessionToken(): Promise<string> {
 }
 
 export const api = {
+  login: (body: any) =>
+    fetchJSON<{ token: string; user: any }>("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  register: (body: any) =>
+    fetchJSON<{ token: string; user: any }>("/api/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  getMe: () => fetchJSON<{ user: any }>("/api/auth/me"),
   getStatus: () => fetchJSON<StatusResponse>("/api/status"),
   getSessions: (limit = 20, offset = 0) =>
     fetchJSON<PaginatedSessions>(`/api/sessions?limit=${limit}&offset=${offset}`),
@@ -97,6 +123,7 @@ export const api = {
   getModelsAnalytics: (days: number) =>
     fetchJSON<ModelsAnalyticsResponse>(`/api/analytics/models?days=${days}`),
   getConfig: () => fetchJSON<Record<string, unknown>>("/api/config"),
+  getConfigPublic: () => fetchJSON<Record<string, unknown>>("/api/config/public"),
   getDefaults: () => fetchJSON<Record<string, unknown>>("/api/config/defaults"),
   getSchema: () => fetchJSON<{ fields: Record<string, unknown>; category_order: string[] }>("/api/config/schema"),
   getModelInfo: () => fetchJSON<ModelInfoResponse>("/api/model/info"),
@@ -348,6 +375,21 @@ export const api = {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name }),
+    }),
+  getSetupStatus: () => fetchJSON<{ setup_completed: boolean }>("/api/setup/status"),
+  completeSetup: (body: any) =>
+    fetchJSON<{ success: boolean; token: string; user: any }>("/api/setup/complete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  getLicenseStatus: () =>
+    fetchJSON<{ activated: boolean; license_key: string; license_info: any }>("/api/license/status"),
+  activateLicense: (body: { license_key: string }) =>
+    fetchJSON<{ success: boolean; license_info: any }>("/api/license/activate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
     }),
 };
 

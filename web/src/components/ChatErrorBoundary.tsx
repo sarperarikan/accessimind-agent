@@ -28,7 +28,7 @@ export class ChatErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+        <div role="alert" aria-live="assertive" className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
           <AlertCircle className="h-8 w-8 text-destructive" />
           <div className="text-sm text-destructive">
             Chat UI crashed unexpectedly.

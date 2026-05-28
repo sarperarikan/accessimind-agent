@@ -12,80 +12,33 @@ _profile_fallback_warned: bool = False
 
 
 def get_hermes_home() -> Path:
-    """Return the Hermes home directory (default: ~/.hermes).
+    """Return the AccessiMind/Hermes home directory (default: ~/.accessimind).
 
-    Reads HERMES_HOME env var, falls back to ~/.hermes.
+    Reads ACCESSIMIND_HOME/HERMES_HOME env var, falls back to ~/.accessimind or ~/.hermes.
     This is the single source of truth — all other copies should import this.
-
-    When ``HERMES_HOME`` is unset but an ``active_profile`` file indicates
-    a non-default profile is active, logs a loud one-shot warning to
-    ``errors.log`` so cross-profile data corruption is diagnosable instead
-    of silent.  Behavior is unchanged otherwise — we still return
-    ``~/.hermes`` — because raising here would brick 30+ module-level
-    callers that import this at load time.  Subprocess spawners are
-    expected to propagate ``HERMES_HOME`` explicitly (see the systemd
-    template in ``hermes_cli/gateway.py`` and the kanban dispatcher in
-    ``hermes_cli/kanban_db.py``).  See https://github.com/NousResearch/hermes-agent/issues/18594.
     """
-    val = os.environ.get("HERMES_HOME", "").strip()
+    val = os.environ.get("ACCESSIMIND_HOME", os.environ.get("HERMES_HOME", "")).strip()
     if val:
         return Path(val)
 
-    # Guard: if a non-default profile is sticky-active, warn once that
-    # the fallback to the default profile is almost certainly wrong.
-    global _profile_fallback_warned
-    if not _profile_fallback_warned:
-        try:
-            # Inline the default-root resolution from get_default_hermes_root()
-            # to stay import-safe (this function is called from module scope
-            # in 30+ files; we cannot afford to trigger logging setup here).
-            active_path = (Path.home() / ".hermes" / "active_profile")
-            active = active_path.read_text().strip() if active_path.exists() else ""
-        except (UnicodeDecodeError, OSError):
-            active = ""
-        if active and active != "default":
-            _profile_fallback_warned = True
-            # Write directly to stderr.  We intentionally do NOT route this
-            # through ``logging`` because (a) this function is called at
-            # module-import time from 30+ sites, often before logging is
-            # configured, and (b) root-logger propagation would double-emit
-            # on consoles where a StreamHandler is already attached.
-            import sys
-            msg = (
-                f"[HERMES_HOME fallback] HERMES_HOME is unset but active "
-                f"profile is {active!r}. Falling back to ~/.hermes, which "
-                f"is the DEFAULT profile — not {active!r}. Any data this "
-                f"process writes will land in the wrong profile. The "
-                f"subprocess spawner should pass HERMES_HOME explicitly "
-                f"(see issue #18594)."
-            )
-            try:
-                sys.stderr.write(msg + "\n")
-                sys.stderr.flush()
-            except Exception:
-                pass
-
-    return Path.home() / ".hermes"
+    # Check ~/.accessimind first
+    accessimind_home = Path.home() / ".accessimind"
+    hermes_home = Path.home() / ".hermes"
+    
+    if accessimind_home.exists():
+        return accessimind_home
+    if hermes_home.exists():
+        return hermes_home
+    return accessimind_home
 
 
 def get_default_hermes_root() -> Path:
-    """Return the root Hermes directory for profile-level operations.
-
-    In standard deployments this is ``~/.hermes``.
-
-    In Docker or custom deployments where ``HERMES_HOME`` points outside
-    ``~/.hermes`` (e.g. ``/opt/data``), returns ``HERMES_HOME`` directly
-    — that IS the root.
-
-    In profile mode where ``HERMES_HOME`` is ``<root>/profiles/<name>``,
-    returns ``<root>`` so that ``profile list`` can see all profiles.
-    Works both for standard (``~/.hermes/profiles/coder``) and Docker
-    (``/opt/data/profiles/coder``) layouts.
-
-    Import-safe — no dependencies beyond stdlib.
-    """
-    native_home = Path.home() / ".hermes"
-    env_home = os.environ.get("HERMES_HOME", "")
+    """Return the root AccessiMind/Hermes directory for profile-level operations."""
+    accessimind_home = Path.home() / ".accessimind"
+    hermes_home = Path.home() / ".hermes"
+    native_home = accessimind_home if accessimind_home.exists() else hermes_home
+    
+    env_home = os.environ.get("ACCESSIMIND_HOME", os.environ.get("HERMES_HOME", ""))
     if not env_home:
         return native_home
     env_path = Path(env_home)

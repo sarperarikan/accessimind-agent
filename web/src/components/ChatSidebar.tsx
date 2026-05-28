@@ -26,10 +26,13 @@
 import { Button } from "@nous-research/ui/ui/components/button";
 import { Badge } from "@nous-research/ui/ui/components/badge";
 import { Card } from "@/components/ui/card";
+import { Select, SelectOption } from "@nous-research/ui/ui/components/select";
 
 import { ModelPickerDialog } from "@/components/ModelPickerDialog";
 import { ToolCall, type ToolEntry } from "@/components/ToolCall";
 import { GatewayClient, type ConnectionState } from "@/lib/gatewayClient";
+import { api } from "@/lib/api";
+import type { ModelOptionProvider, ModelOptionsResponse } from "@/lib/api";
 
 import { cn } from "@/lib/utils";
 import { AlertCircle, ChevronDown, RefreshCw } from "lucide-react";
@@ -88,6 +91,139 @@ export function ChatSidebar({ channel, className }: ChatSidebarProps) {
   const [tools, setTools] = useState<ToolEntry[]>([]);
   const [modelOpen, setModelOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [providers, setProviders] = useState<ModelOptionProvider[]>([]);
+  const [selectedProvider, setSelectedProvider] = useState<string>("ollama");
+  const [selectedModel, setSelectedModel] = useState<string>("");
+  const [loadingModels, setLoadingModels] = useState<boolean>(false);
+
+  const fetchModels = useCallback(async () => {
+    if (state !== "open" || !sessionId) return null;
+    setLoadingModels(true);
+    try {
+      const r = await gw.request<ModelOptionsResponse>("model.options", { session_id: sessionId });
+      if (r?.providers) {
+        setProviders(r.providers);
+        return r.providers;
+      }
+    } catch (e) {
+      console.error("Failed to load model options", e);
+    } finally {
+      setLoadingModels(false);
+    }
+    return null;
+  }, [state, sessionId, gw]);
+
+  useEffect(() => {
+    if (state === "open" && sessionId) {
+      void fetchModels();
+    }
+  }, [state, sessionId, fetchModels]);
+
+  useEffect(() => {
+    if (info.provider) {
+      const p = info.provider === "google" || info.provider === "gemini" ? "gemini" : info.provider;
+      setSelectedProvider(p);
+    }
+  }, [info.provider]);
+
+  useEffect(() => {
+    if (info.model) {
+      setSelectedModel(info.model);
+    }
+  }, [info.model]);
+
+  const activeProviderOptions = useMemo(() => {
+    const p = providers.find((x) => x.slug === selectedProvider || (selectedProvider === "gemini" && x.slug === "google"));
+    let list = p?.models ?? [];
+    if (list.length === 0) {
+      if (selectedProvider === "ollama") {
+        list = ["llama3", "qwen2.5:7b", "qwen2.5-coder", "mistral", "phi3"];
+      } else {
+        list = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash-exp", "gemini-1.0-pro"];
+      }
+    }
+    if (info.model && !list.includes(info.model)) {
+      const isOllamaModel = selectedProvider === "ollama" && !info.model.includes("gemini");
+      const isGeminiModel = selectedProvider === "gemini" && (info.model.includes("gemini") || info.model.includes("google"));
+      if (isOllamaModel || isGeminiModel) {
+        list = [info.model, ...list];
+      }
+    }
+    return list;
+  }, [providers, selectedProvider, info.model]);
+
+  const applyModelChange = useCallback(async (prov: string, modelName: string) => {
+    if (!sessionId) return;
+    try {
+      setInfo((prev) => ({ ...prev, provider: prov, model: modelName }));
+      await api.setModelAssignment({
+        scope: "main",
+        provider: prov,
+        model: modelName,
+      });
+      await gw.request("slash.exec", {
+        session_id: sessionId,
+        command: `/model ${modelName} --provider ${prov} --global`,
+      });
+    } catch (e) {
+      console.error("Failed to switch model:", e);
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [gw, sessionId]);
+
+  const handleProviderChange = useCallback(async (prov: string) => {
+    setSelectedProvider(prov);
+    setLoadingModels(true);
+    let currentProviders = providers;
+    if (state === "open" && sessionId) {
+      try {
+        const r = await gw.request<ModelOptionsResponse>("model.options", { session_id: sessionId });
+        if (r?.providers) {
+          setProviders(r.providers);
+          currentProviders = r.providers;
+        }
+      } catch (e) {
+        console.error("Failed to fetch model options on provider switch", e);
+      } finally {
+        setLoadingModels(false);
+      }
+    }
+
+    const p = currentProviders.find((x) => x.slug === prov || (prov === "gemini" && x.slug === "google"));
+    const modelsList = p?.models ?? [];
+    let defaultModel = modelsList[0] || "";
+    if (prov === "ollama" && !defaultModel) {
+      defaultModel = "llama3";
+    } else if (prov === "gemini" && !defaultModel) {
+      defaultModel = "gemini-1.5-flash";
+    }
+
+    if (defaultModel) {
+      setSelectedModel(defaultModel);
+      await applyModelChange(prov, defaultModel);
+    }
+  }, [state, sessionId, gw, providers, applyModelChange]);
+
+  const handleRefresh = useCallback(async () => {
+    const updatedProviders = await fetchModels();
+    if (updatedProviders) {
+      const p = updatedProviders.find((x) => x.slug === selectedProvider || (selectedProvider === "gemini" && x.slug === "google"));
+      const modelsList = p?.models ?? [];
+      if (selectedModel && !modelsList.includes(selectedModel)) {
+        let defaultModel = modelsList[0] || "";
+        if (selectedProvider === "ollama" && !defaultModel) {
+          defaultModel = "llama3";
+        } else if (selectedProvider === "gemini" && !defaultModel) {
+          defaultModel = "gemini-1.5-flash";
+        }
+        if (defaultModel) {
+          setSelectedModel(defaultModel);
+          await applyModelChange(selectedProvider, defaultModel);
+        }
+      }
+    }
+  }, [selectedProvider, selectedModel, fetchModels, applyModelChange]);
 
   useEffect(() => {
     let cancelled = false;
@@ -335,8 +471,68 @@ export function ChatSidebar({ channel, className }: ChatSidebarProps) {
         <Badge tone={STATE_TONE[state]}>{STATE_LABEL[state]}</Badge>
       </Card>
 
+      <Card className="flex flex-col gap-2.5 px-3 py-2.5">
+        <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+          Quick Model Switcher
+        </div>
+
+        <div className="grid grid-cols-2 gap-1 rounded bg-muted/40 p-0.5 border border-border/30">
+          <Button
+            size="sm"
+            type="button"
+            outlined={selectedProvider !== "ollama"}
+            onClick={() => handleProviderChange("ollama")}
+            className="text-[10px] py-1 h-auto font-medium px-2"
+          >
+            Ollama (Local)
+          </Button>
+          <Button
+            size="sm"
+            type="button"
+            outlined={selectedProvider !== "gemini"}
+            onClick={() => handleProviderChange("gemini")}
+            className="text-[10px] py-1 h-auto font-medium px-2"
+          >
+            Google Gemini
+          </Button>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center justify-between">
+            <label className="text-[9px] text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+              Select Model
+              {loadingModels && (
+                <RefreshCw className="h-2.5 w-2.5 animate-spin text-primary" />
+              )}
+            </label>
+            <button
+              type="button"
+              disabled={loadingModels || state !== "open" || !sessionId}
+              onClick={handleRefresh}
+              className="text-[9px] text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className="h-2.5 w-2.5" /> Refresh Models
+            </button>
+          </div>
+          <Select
+            value={selectedModel}
+            onValueChange={(val) => {
+              setSelectedModel(val);
+              void applyModelChange(selectedProvider, val);
+            }}
+            className="w-full text-xs h-8"
+          >
+            {activeProviderOptions.map((m) => (
+              <SelectOption key={m} value={m}>
+                {m.includes("/") ? m.split("/").slice(-1)[0] : m}
+              </SelectOption>
+            ))}
+          </Select>
+        </div>
+      </Card>
+
       {banner && (
-        <Card className="flex items-start gap-2 border-destructive/40 bg-destructive/5 px-3 py-2 text-xs">
+        <Card role="alert" aria-live="assertive" className="flex items-start gap-2 border-destructive/40 bg-destructive/5 px-3 py-2 text-xs">
           <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" />
 
           <div className="min-w-0 flex-1">

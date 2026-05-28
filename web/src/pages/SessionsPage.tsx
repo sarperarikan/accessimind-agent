@@ -393,7 +393,7 @@ function SessionRow({
             </div>
           )}
           {error && (
-            <p className="text-sm text-destructive py-4 text-center">{error}</p>
+            <p role="alert" aria-live="assertive" className="text-sm text-destructive py-4 text-center">{error}</p>
           )}
           {messages && messages.length === 0 && (
             <p className="text-sm text-muted-foreground py-4 text-center">

@@ -163,7 +163,7 @@ export function ToolCall({ tool }: { tool: ToolEntry }) {
 
           {tool.error && (
             <Section label="error" tone="error">
-              <span className="text-destructive whitespace-pre-wrap">
+              <span role="alert" className="text-destructive whitespace-pre-wrap">
                 {tool.error}
               </span>
             </Section>

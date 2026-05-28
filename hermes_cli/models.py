@@ -222,6 +222,16 @@ _PROVIDER_MODELS: dict[str, list[str]] = {
         "gemini-3-pro-preview",
         "gemini-3-flash-preview",
     ],
+    "ollama": [
+        "qwen2.5-coder:7b",
+        "qwen2.5-coder:14b",
+        "deepseek-r1:7b",
+        "deepseek-r1:14b",
+        "llama3.1:8b",
+        "llama3.3:70b",
+        "mistral:7b",
+        "phi3:latest",
+    ],
     "zai": [
         "glm-5.1",
         "glm-5",
@@ -915,6 +925,7 @@ CANONICAL_PROVIDERS: list[ProviderEntry] = [
     ProviderEntry("openrouter",     "OpenRouter",               "OpenRouter (100+ models, pay-per-use)"),
     ProviderEntry("novita",         "NovitaAI",                 "NovitaAI (AI-native cloud: Model API, Agent Sandbox, GPU Cloud)"),
     ProviderEntry("lmstudio",       "LM Studio",                "LM Studio (local desktop app with built-in model server)"),
+    ProviderEntry("ollama",         "Ollama (Local)",           "Ollama (local model server — localhost:11434)"),
     ProviderEntry("anthropic",      "Anthropic",                "Anthropic (Claude models — API key or Claude Code)"),
     ProviderEntry("openai-codex",   "OpenAI Codex",             "OpenAI Codex"),
     ProviderEntry("alibaba",        "Qwen Cloud",               "Qwen Cloud / DashScope Coding (Qwen + multi-provider)"),
@@ -1045,7 +1056,7 @@ _PROVIDER_ALIASES = {
     "lmstudio": "lmstudio",
     "lm-studio": "lmstudio",
     "lm_studio": "lmstudio",
-    "ollama": "custom",  # bare "ollama" = local; use "ollama-cloud" for cloud
+    "ollama": "ollama",  # bare "ollama" = local; use "ollama-cloud" for cloud
     "ollama_cloud": "ollama-cloud",
 }
 

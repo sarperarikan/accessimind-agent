@@ -21,6 +21,10 @@ import re
 import sqlite3
 import threading
 import time
+import hashlib
+import hmac
+import os
+import uuid
 from pathlib import Path
 
 from agent.memory_manager import sanitize_context
@@ -33,7 +37,23 @@ T = TypeVar("T")
 
 DEFAULT_DB_PATH = get_hermes_home() / "state.db"
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
+
+def hash_password(password: str) -> str:
+    salt = os.urandom(16)
+    db_hash = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 100000)
+    return f"{salt.hex()}:{db_hash.hex()}"
+
+def verify_password(password: str, hashed: str) -> bool:
+    try:
+        salt_hex, hash_hex = hashed.split(":")
+        salt = bytes.fromhex(salt_hex)
+        db_hash = bytes.fromhex(hash_hex)
+        new_hash = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 100000)
+        return hmac.compare_digest(new_hash, db_hash)
+    except Exception:
+        return False
+
 
 # ---------------------------------------------------------------------------
 # WAL-compatibility fallback
@@ -248,6 +268,14 @@ CREATE INDEX IF NOT EXISTS idx_sessions_source ON sessions(source);
 CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions(parent_session_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_started ON sessions(started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, timestamp);
+
+CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    username TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL,
+    created_at REAL NOT NULL
+);
 """
 
 FTS_SQL = """
@@ -648,6 +676,16 @@ class SessionDB:
                     "COALESCE(tool_calls, '') "
                     "FROM messages"
                 )
+            if current_version < 12:
+                cursor.execute("SELECT 1 FROM users WHERE username = 'admin'")
+                if cursor.fetchone() is None:
+                    admin_id = str(uuid.uuid4())
+                    admin_pass_hash = hash_password("admin2026")
+                    cursor.execute(
+                        "INSERT INTO users (id, username, password_hash, role, created_at) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        (admin_id, "admin", admin_pass_hash, "admin", time.time())
+                    )
             if current_version < SCHEMA_VERSION:
                 cursor.execute(
                     "UPDATE schema_version SET version = ?",
@@ -692,6 +730,8 @@ class SessionDB:
         parent_session_id: str = None,
     ) -> None:
         """Shared INSERT OR IGNORE for session rows."""
+        if user_id is None:
+            user_id = os.environ.get("HERMES_USER_ID")
         def _do(conn):
             conn.execute(
                 """INSERT OR IGNORE INTO sessions (id, source, user_id, model, model_config,
@@ -1168,6 +1208,7 @@ class SessionDB:
         include_children: bool = False,
         project_compression_tips: bool = True,
         order_by_last_active: bool = False,
+        user_id: str = None,
     ) -> List[Dict[str, Any]]:
         """List sessions with preview (first user message) and last active timestamp.
 
@@ -1220,6 +1261,9 @@ class SessionDB:
             placeholders = ",".join("?" for _ in exclude_sources)
             where_clauses.append(f"s.source NOT IN ({placeholders})")
             params.extend(exclude_sources)
+        if user_id:
+            where_clauses.append("s.user_id = ?")
+            params.append(user_id)
 
         where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
         if order_by_last_active:
@@ -1885,6 +1929,7 @@ class SessionDB:
         role_filter: List[str] = None,
         limit: int = 20,
         offset: int = 0,
+        user_id: str = None,
     ) -> List[Dict[str, Any]]:
         """
         Full-text search across session messages using FTS5.
@@ -1923,6 +1968,9 @@ class SessionDB:
             role_placeholders = ",".join("?" for _ in role_filter)
             where_clauses.append(f"m.role IN ({role_placeholders})")
             params.extend(role_filter)
+        if user_id:
+            where_clauses.append("s.user_id = ?")
+            params.append(user_id)
 
         where_sql = " AND ".join(where_clauses)
         params.extend([limit, offset])
@@ -1996,6 +2044,9 @@ class SessionDB:
                 if role_filter:
                     tri_where.append(f"m.role IN ({','.join('?' for _ in role_filter)})")
                     tri_params.extend(role_filter)
+                if user_id:
+                    tri_where.append("s.user_id = ?")
+                    tri_params.append(user_id)
                 tri_sql = f"""
                     SELECT
                         m.id,
@@ -2051,6 +2102,9 @@ class SessionDB:
                 if role_filter:
                     like_where.append(f"m.role IN ({','.join('?' for _ in role_filter)})")
                     like_params.extend(role_filter)
+                if user_id:
+                    like_where.append("s.user_id = ?")
+                    like_params.append(user_id)
                 like_sql = f"""
                     SELECT m.id, m.session_id, m.role,
                            substr(m.content,
@@ -2188,12 +2242,22 @@ class SessionDB:
     # Utility
     # =========================================================================
 
-    def session_count(self, source: str = None) -> int:
-        """Count sessions, optionally filtered by source."""
+    def session_count(self, source: str = None, user_id: str = None) -> int:
+        """Count sessions, optionally filtered by source and/or user_id."""
         with self._lock:
+            clauses = []
+            params = []
             if source:
+                clauses.append("source = ?")
+                params.append(source)
+            if user_id:
+                clauses.append("user_id = ?")
+                params.append(user_id)
+            
+            if clauses:
+                where_sql = " AND ".join(clauses)
                 cursor = self._conn.execute(
-                    "SELECT COUNT(*) FROM sessions WHERE source = ?", (source,)
+                    f"SELECT COUNT(*) FROM sessions WHERE {where_sql}", tuple(params)
                 )
             else:
                 cursor = self._conn.execute("SELECT COUNT(*) FROM sessions")
@@ -2209,6 +2273,39 @@ class SessionDB:
             else:
                 cursor = self._conn.execute("SELECT COUNT(*) FROM messages")
             return cursor.fetchone()[0]
+
+    # =========================================================================
+    # User management
+    # =========================================================================
+
+    def create_user(self, username: str, password_hash: str, role: str) -> str:
+        """Create a new user and return the user's ID."""
+        user_id = str(uuid.uuid4())
+        def _do(conn):
+            conn.execute(
+                "INSERT INTO users (id, username, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?)",
+                (user_id, username, password_hash, role, time.time()),
+            )
+        self._execute_write(_do)
+        return user_id
+
+    def get_user_by_username(self, username: str) -> Optional[Dict[str, Any]]:
+        """Get a user by username."""
+        with self._lock:
+            cursor = self._conn.execute(
+                "SELECT * FROM users WHERE username = ?", (username,)
+            )
+            row = cursor.fetchone()
+        return dict(row) if row else None
+
+    def get_user_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """Get a user by ID."""
+        with self._lock:
+            cursor = self._conn.execute(
+                "SELECT * FROM users WHERE id = ?", (user_id,)
+            )
+            row = cursor.fetchone()
+        return dict(row) if row else None
 
     # =========================================================================
     # Export and cleanup
