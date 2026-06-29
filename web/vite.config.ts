@@ -2,11 +2,8 @@ import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
-import electron from "vite-plugin-electron";
-import renderer from "vite-plugin-electron-renderer";
 
 const BACKEND = process.env.HERMES_DASHBOARD_URL ?? "http://127.0.0.1:9119";
-const isElectron = process.env.ELECTRON === "1";
 
 /**
  * In production the Python `hermes dashboard` server injects a one-shot
@@ -17,14 +14,11 @@ const isElectron = process.env.ELECTRON === "1";
  * This plugin fetches the running dashboard's `index.html` on each dev page
  * load, scrapes the `window.__HERMES_SESSION_TOKEN__` assignment, and
  * re-injects it into the dev HTML. No-op in production builds.
- * Not used in Electron mode (no Python backend).
  */
 function hermesDevToken(): Plugin {
   const TOKEN_RE = /window\.__HERMES_SESSION_TOKEN__\s*=\s*"([^"]+)"/;
   const EMBEDDED_RE =
     /window\.__HERMES_DASHBOARD_EMBEDDED_CHAT__\s*=\s*(true|false)/;
-  const LEGACY_TUI_RE =
-    /window\.__HERMES_DASHBOARD_TUI__\s*=\s*(true|false)/;
 
   return {
     name: "hermes:dev-session-token",
@@ -42,12 +36,7 @@ function hermesDevToken(): Plugin {
           return;
         }
         const embeddedMatch = html.match(EMBEDDED_RE);
-        const legacyMatch = html.match(LEGACY_TUI_RE);
-        const embeddedJs = embeddedMatch
-          ? embeddedMatch[1]
-          : legacyMatch
-            ? legacyMatch[1]
-            : "false";
+        const embeddedJs = embeddedMatch ? embeddedMatch[1] : "true";
         return [
           {
             tag: "script",
@@ -69,38 +58,7 @@ function hermesDevToken(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [
-    react(),
-    tailwindcss(),
-    // Don't try to fetch Python backend token in Electron mode
-    ...(isElectron ? [] : [hermesDevToken()]),
-    ...(isElectron
-      ? [
-          electron([
-            {
-              // Main process — build only, we launch via wait-on in npm script
-              entry: "electron/main.cjs",
-              vite: {
-                build: {
-                  outDir: "dist-electron",
-                },
-              },
-            },
-            {
-              // Preload script — build only
-              entry: "electron/preload.cjs",
-              vite: {
-                build: {
-                  outDir: "dist-electron",
-                },
-              },
-            },
-          ]),
-          renderer(),
-        ]
-      : []),
-  ],
-  base: isElectron ? "./" : "/",
+  plugins: [react(), tailwindcss(), hermesDevToken()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
@@ -108,7 +66,12 @@ export default defineConfig({
     // When @nous-research/ui is symlinked via `file:../../design-language`,
     // Node's module resolution would pick up shared deps from
     // design-language/node_modules/*, giving us two copies + breaking
-    // hooks (useRef-of-null), webgl contexts, etc.
+    // hooks (useRef-of-null), webgl contexts, etc. Force everything that
+    // exists in BOTH places to use the dashboard's copy.
+    //
+    // Don't list packages here that only exist in the DS (nanostores,
+    // @nanostores/react) — Vite dedupe errors out when it can't find
+    // them at the project root.
     dedupe: [
       "react",
       "react-dom",
@@ -120,20 +83,19 @@ export default defineConfig({
     ],
   },
   build: {
-    outDir: isElectron ? "dist" : "../hermes_cli/web_dist",
+    outDir: "../hermes_cli/web_dist",
     emptyOutDir: true,
   },
-  ...(isElectron
-    ? {}
-    : {
-        server: {
-          proxy: {
-            "/api": {
-              target: BACKEND,
-              ws: true,
-            },
-            "/dashboard-plugins": BACKEND,
-          },
-        },
-      }),
+  server: {
+    proxy: {
+      "/api": {
+        target: BACKEND,
+        ws: true,
+      },
+      // Same host as `hermes dashboard` must serve these; Vite has no
+      // dashboard-plugins/* files, so without this, plugin scripts 404
+      // or receive index.html in dev.
+      "/dashboard-plugins": BACKEND,
+    },
+  },
 });

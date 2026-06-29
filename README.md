@@ -1,115 +1,192 @@
-<p align="center">
-  <img src="https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1000&auto=format&fit=crop" alt="AccessiMind Agent Banner" width="100%" style="border-radius: 12px; margin-bottom: 20px;">
-</p>
+# AccessiMind Agent
 
-# AccessiMind Agent 🧠
+**Hermes Agent tabanlı, WCAG 2.2 AA uyumlu, erişilebilir AI platformu.**
 
-<p align="center">
-  <a href="#"><img src="https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge" alt="Status"></a>
-  <a href="#"><img src="https://img.shields.io/badge/Version-v1.0.0-blue?style=for-the-badge" alt="Version"></a>
-  <a href="#"><img src="https://img.shields.io/badge/Aesthetics-Premium-violet?style=for-the-badge" alt="Aesthetics"></a>
-  <a href="#"><img src="https://img.shields.io/badge/WCAG-2.2_AA-green?style=for-the-badge" alt="Accessibility"></a>
-  <a href="#"><img src="https://img.shields.io/badge/Installer-Automated-orange?style=for-the-badge" alt="Installer"></a>
-</p>
+AccessiMind, [Hermes Agent](https://github.com/NousResearch/hermes-agent) altyapısı üzerine inşa edilmiş, çok sağlayıcılı (OpenRouter, Ollama, MoA), Türkçe arayüze sahip, erişilebilirlik odaklı bir AI asistanı platformudur. Dashboard, TUI ve mesajlaşma gateway'i (Telegram, Discord, WhatsApp, Signal) üzerinden erişilebilir.
 
-**AccessiMind Agent** is a state-of-the-art, portable, and self-improving AI agent designed with high visual excellence, dynamic interactions, and complete accessibility under **WCAG 2.2 guidelines**. It features a closed-loop learning architecture that constructs skills from experiences, improves them autonomously during use, persists knowledge cross-session, and maintains user models dynamically.
+## Özellikler
 
-AccessiMind is designed to run everywhere—from a cheap cloud VPS or cluster server, to serverless environments that hibernate when idle. You can interact with it via its beautiful web-based React dashboard, a responsive built-in terminal (TUI) with real POSIX PTY shell environments, or bridge it directly to messaging platforms (Telegram, Discord, Slack, WhatsApp, Signal) for multi-channel workflows.
+### 🎯 Çok Sağlayıcılı AI Altyapısı
+- **OpenRouter Free**: 20+ ücretsiz model (Nemotron, Qwen, Hermes, GPT-OSS, Llama, vb.)
+- **Ollama Cloud**: Kimi-K2, MiniMax-M3, GLM-5.2 ve daha fazlası
+- **Mixture of Agents (MoA)**: Çoklu model füzyon preset'leri
+  - `free-fusion` (5 model)
+  - `mega-fusion` (7 model)
+  - `fast-fusion` (3 model)
+  - `code-fusion` (3 model)
+- **Fallback zinciri**: Bir sağlayıcı başarısız olursa otomatik yedek sağlayıcıya geçiş
 
----
+### ♿ WCAG 2.2 AA Erişilebilirlik
+- Tam WCAG 2.2 Level AA uyumlu web dashboard
+- ARIA etiketleri, klavye navigasyonu, ekran okuyucu desteği
+- Türkçe varsayılan dil, çok dilli arayüz (20+ dil)
+- Yüksek kontrast tema seçenekleri
+- NVDA, JAWS, VoiceOver uyumlu
 
-## Key Highlights
+### 🖥️ Dashboard
+- `/chat` override plugin — modern sohbet arayüzü (mesaj balonları, markdown, streaming)
+- Prompt Library — kategorize, etiketli, değişken destekli prompt yönetimi
+- Skill Learning — kullanım analizine dayalı skill önerileri
+- Config, Models, Sessions, Logs, Plugins, Cron, Analytics sayfaları
+- Nginx reverse proxy (port 9119 → 443 HTTPS)
 
-### 🎨 Visual & Aesthetic Excellence
-- **Sleek Modern Palette:** Custom-curated dark mode and glassmorphism interface featuring rich, tailored gradients and professional HSL-based highlights.
-- **Micro-Animations & Pulsing Brand:** The UI comes alive with interactive hover states, micro-transitions, and a pulsing `Brain` icon symbolizing the agent's constant active learning state.
-- **Dual-Mode Dashboard:** Instantly switch between an advanced xterm POSIX PTY terminal shell (for raw script outputs and CLI tools) and a native, visually stunning React Chat UI.
+### 📱 Mesajlaşma Gateway
+- Telegram (topic/çok-oturum desteği)
+- Discord (sesli kanal + TTS)
+- WhatsApp, Signal, Matrix, Slack, Teams, Feishu, LINE
+- Webhook entegrasyonları
 
-### ♿ Accessibility & WCAG 2.2 Alignment
-- **Dynamic Contrast & Legibility:** Carefully selected font weights and high-contrast styling complying strictly with WCAG 2.2 readability and color ratio parameters.
-- **Keyboard Friendly Navigation:** Complete keyboard navigation mapping across elements, input interfaces, and pop-ups.
-- **Drop-up Swapping Switcher:** Accessible dynamic language switcher supporting **English, Turkish, and many more languages** without cutting off screen margins.
+### 🔧 Hermes Engine
+- Tam Hermes Agent altyapısı (upstream senkronize)
+- Skill sistemi (100+ yerleşik skill)
+- Cron job zamanlayıcı
+- Kanban board (çoklu worker)
+- MCP (Model Context Protocol) desteği
+- ACP (Agent Communication Protocol) adapter
+- Trajectory compression (bağlam optimizasyonu)
+- Checkpoint & rollback sistemi
+- Profil yönetimi (çoklu profil)
 
-### 📦 Automated & Portable Server Setup (`setup-accessimind.sh`)
-AccessiMind includes a fully self-contained automated installation script (`setup-accessimind.sh`) that sets up a production-ready environment in minutes:
-- **Astral `uv` Integration:** Automatically bootstraps or detects `uv` (the blazing-fast Python package manager).
-- **Python 3.11 Environment:** Safely provisions a isolated virtual environment (`venv`) using Python 3.11.
-- **Fast Backend Sync:** Restores all 100+ backend dependencies cleanly via `uv.lock` with zero manual package mapping.
-- **Node.js Compilation:** Detects local Node environment, installs packages, and compiles the React dashboard into the production static bundle.
-- **System-Wide CLI Symlink:** Automatically symlinks the executable as `accessimind` in `~/.local/bin` and updates shell paths (`~/.zshrc` / `~/.bashrc`) so you can execute the agent anywhere.
-- **Skills Directory Syncing:** Safely provisions custom skills inside the user home directory (`~/.hermes/skills`).
+### 🛡️ Güvenlik
+- scrypt tabanlı parola hash'leme (dashboard auth)
+- İptables + fail2ban VPS hardening
+- SSH erişim kısıtlı, public 22 kapalı
+- OAuth entegrasyonu (Google, GitHub, Microsoft)
 
----
+### 🌐 Türkçe Yerelleştirme
+- Tam Türkçe arayüz çevirisi (`web/src/i18n/tr.ts`)
+- `locales/tr.yaml` statik mesaj katalogu
+- Tüm komutlar ve sistem mesajları Türkçe
 
-## Quick One-Click Installation
+## Mimari
 
-To spin up a new instance of AccessiMind Agent on any Linux or macOS server, you can stream the setup script directly using `curl`. 
-
-### 🚀 Static Bootstrapping (One-Liner)
-
-If you have an active AccessiMind server running, the installer is served statically at `http://<host>:9119/setup-accessimind.sh`. Anyone can run the installation with a single command:
-
-```bash
-curl -fsSL http://<your-server-ip>:9119/setup-accessimind.sh | bash
+```
+accessimind-agent/
+├── agent/              # AI ajan runtime (conversation loop, tool executor, compression)
+├── apps/
+│   ├── desktop/        # Electron desktop app
+│   └── bootstrap-installer/  # Tauri kurulum sihirbazı
+├── gateway/            # Mesajlaşma gateway (Telegram, Discord, vb.)
+├── hermes_cli/         # CLI + dashboard backend
+│   ├── dashboard_auth/  # scrypt parola doğrulama
+│   ├── prompt_library.py # Prompt kütüphanesi
+│   └── skill_learning.py # Skill öneri sistemi
+├── tui_gateway/        # Terminal UI gateway (WebSocket)
+├── ui-tui/             # Terminal arayüzü (Ink/React)
+├── web/                # Web dashboard (React + Vite)
+│   └── src/
+│       ├── components/  # ChatView, MessageBubble, ChatInput, vb.
+│       ├── i18n/        # 20+ dil çevirisi
+│       ├── pages/       # ChatPage, ConfigPage, ModelsPage, vb.
+│       └── themes/      # Tema preset'leri
+├── tools/              # Araç seti (terminal, browser, web, vision, vb.)
+├── skills/             # Yerleşik skill'ler
+├── plugins/            # Dashboard plugin'leri
+├── acp_adapter/        # ACP protocol adapter
+├── cron/               # Cron job altyapısı
+├── accessimind-plugins/  # AccessiMind'a özel dashboard plugin'leri
+│   └── dashboard/      # /chat override (entry.js, styles.css, manifest.json)
+├── accessimind-deploy/   # Dağıtım ve konfigürasyon
+│   ├── config.yaml.example  # Örnek config (secret'lar temizlenmiş)
+│   ├── hermes-dashboard.service  # systemd service
+│   ├── SOUL.md             # Ajan persona tanımı
+│   └── cron-jobs.json      # Cron job tanımları
+├── accessimind-scripts/  # Bakım script'leri
+│   └── accessimind-update.sh  # Upstream sync + rebuild
+└── website/            # Dokümantasyon sitesi (Docusaurus)
 ```
 
-Alternatively, run the script locally inside the cloned directory:
+## Kurulum
+
+### Hızlı Kurulum (VPS)
 
 ```bash
-chmod +x setup-accessimind.sh
-./setup-accessimind.sh
+# Hermes Agent'ı kur
+git clone https://github.com/sarperarikan/accessimind-agent.git
+cd accessimind-agent
+python3 -m venv venv
+source venv/bin/activate
+pip install -e .
+
+# Web UI build
+cd web && npm ci && npm run build && cd ..
+
+# Dashboard başlat
+hermes dashboard --port 9119 --host 0.0.0.0
 ```
 
-To run in non-interactive, unattended mode (e.g. for CI/CD or docker scripts), pass `--auto`:
+### Production Dağıtım
 
 ```bash
-./setup-accessimind.sh --auto
+# systemd service
+cp accessimind-deploy/hermes-dashboard.service /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable hermes-dashboard
+systemctl start hermes-dashboard
+
+# Nginx reverse proxy (9119 → 443)
+# SSL sertifikası (Let's Encrypt)
 ```
 
----
-
-## Post-Install Commands
-
-Once installed, reload your shell profile (`source ~/.zshrc` or `source ~/.bashrc`) and start managing the agent with the custom global command `accessimind`:
+### Config
 
 ```bash
-accessimind setup        # Launch the configuration wizard (LLM endpoints, API tokens)
-accessimind              # Start the interactive terminal CLI chat session
-accessimind dashboard    # Boot up the gorgeous React Web Dashboard
-accessimind model        # Change LLM provider and target model instantly
-accessimind tools        # Toggle tool configurations & MCP connections
-accessimind gateway      # Start the messaging gateway (Telegram, Discord, Slack, etc.)
-accessimind doctor       # Check server health, logs, and connection statuses
+# Config dosyasını kopyala
+cp accessimind-deploy/config.yaml.example ~/.hermes/config.yaml
+
+# .env dosyasını oluştur
+cp .env.example ~/.hermes/.env
+# API key'lerini ekle
 ```
 
----
+### AccessiMind Plugin
 
-## Multi-Server Deployment Dashboard
+```bash
+# Chat UI override plugin
+mkdir -p ~/.hermes/plugins/accessimind-chat/dashboard
+cp accessimind-plugins/dashboard/* ~/.hermes/plugins/accessimind-chat/dashboard/
+```
 
-AccessiMind includes a **Deployment & Installation Management** dashboard card built directly into the **Configuration** page of the SPA:
+## Güncelleme
 
-- **Deployment Logs:** Track installation script status, check versions, and view dependency details in real-time.
-- **One-Click Re-run:** Easily trigger a full clean setup re-run right from the visual dashboard if you move servers or add new system packages.
-- **Multi-Server Syncing:** Simple configuration controls for deploying copycats, syncing skills, and sharing user memory layers across distinct servers.
+```bash
+# Upstream sync + rebuild
+bash accessimind-scripts/accessimind-update.sh
+```
 
----
+## Sağlayıcılar
 
-## Supported LLM Providers
+| Sağlayıcı | Modeller | Ücretsiz |
+|-----------|---------|----------|
+| OpenRouter Free | 20+ model (Nemotron, Qwen, Hermes, GPT-OSS, Llama, vb.) | ✅ |
+| Ollama Cloud | Kimi-K2, MiniMax-M3, GLM-5.2 | Freemin |
+| OpenAI | GPT-4o, GPT-4o-mini, o3, vb. | ❌ |
+| Anthropic | Claude Sonnet, Opus | ❌ |
+| Google | Gemini 2.5 Pro/Flash | ❌ |
+| Azure | Foundry modelleri | ❌ |
+| AWS | Bedrock modelleri | ❌ |
 
-AccessiMind is fully model-agnostic and includes plug-and-play modules for:
-* **Nous Portal**
-* **OpenRouter** (200+ models)
-* **NovitaAI**
-* **NVIDIA NIM** (Nemotron)
-* **Kimi / Moonshot**
-* **MiniMax**
-* **Hugging Face**
-* **OpenAI / Claude / Gemini** endpoints
+## Teknoloji Yığını
 
----
+- **Backend**: Python 3.12, asyncio, SQLite
+- **Frontend**: React 18, Vite, TypeScript, Tailwind CSS
+- **TUI**: Ink (React for CLI), TypeScript
+- **Desktop**: Electron, TypeScript
+- **Installer**: Tauri (Rust)
+- **Docs**: Docusaurus
+- **Gateway**: WebSocket, çoklu platform adapter
 
-## License & Credits
+## Lisans
 
-Built in partnership with Nous Research. Re-engineered as a portable product with premium design, dynamic interactions, and accessibility compliance. 
+Bu proje [Hermes Agent](https://github.com/NousResearch/hermes-agent) (MIT) üzerine inşa edilmiştir.
 
-Developed and distributed by **Sarper Arıkan** under the MIT License.
+## Katkıda Bulunanlar
+
+- **Sarper Arikan** — AccessiMind özelleştirmesi, Türkçe yerelleştirme, erişilebilirlik
+- **Nous Research** — Hermes Agent altyapısı
+
+## Bağlantılar
+
+- 🌐 [erisilebilirai.com](https://erisilebilirai.com) — AccessiMind platformu
+- 📖 [Hermes Agent Docs](https://hermes-agent.nousresearch.com/docs)
+- 🐛 [Issue Tracker](https://github.com/sarperarikan/accessimind-agent/issues)

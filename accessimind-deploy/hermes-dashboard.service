@@ -1,0 +1,19 @@
+[Unit]
+Description=Hermes Agent Dashboard
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root
+Environment=HERMES_HOME=/root/.hermes
+ExecStartPre=/bin/bash -c 'fuser -k 9119/tcp 2>/dev/null || true'
+ExecStartPre=/bin/sleep 1
+ExecStart=/usr/local/bin/hermes dashboard --port 9119 --host 0.0.0.0 --no-open
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -4,27 +4,18 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "sync-assets": "node scripts/sync-assets.mjs",
-    "predev": "npm run sync-assets",
-    "prebuild": "npm run sync-assets",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "electron:dev": "concurrently -k \"cross-env ELECTRON=1 vite\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development .\\node_modules\\.bin\\electron.cmd .\"" ,
-    "electron:build": "cross-env ELECTRON=1 tsc -b && cross-env ELECTRON=1 vite build && cross-env NODE_OPTIONS=--max-old-space-size=8192 electron-builder --win"
+    "typecheck": "tsc -p . --noEmit",
+    "test": "vitest run"
   },
-  "dependencies": {},
-  "devDependencies": {
-    "@eslint/js": "^9.39.4",
-    "@nous-research/ui": "^0.10.0",
+  "dependencies": {
+    "@nous-research/ui": "0.18.2",
     "@observablehq/plot": "^0.6.17",
     "@react-three/fiber": "^9.6.0",
     "@tailwindcss/vite": "^4.2.1",
-    "@types/node": "^24.12.0",
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^5.2.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-unicode11": "^0.9.0",
     "@xterm/addon-web-links": "^0.12.0",
@@ -32,51 +23,33 @@
     "@xterm/xterm": "^6.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "concurrently": "^9.2.1",
-    "cross-env": "^7.0.3",
-    "electron": "^42.2.0",
-    "electron-builder": "^26.8.1",
+    "gsap": "^3.15.0",
+    "leva": "^0.10.1",
+    "lucide-react": "^0.577.0",
+    "motion": "^12.38.0",
+    "qrcode": "^1.5.4",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-router-dom": "^7.17.0",
+    "tailwind-merge": "^3.5.0",
+    "tailwindcss": "^4.2.1",
+    "unicode-animations": "^1.0.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "@types/node": "^24.13.2",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.2",
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.4.0",
-    "gsap": "^3.15.0",
-    "leva": "^0.10.1",
-    "lucide-react": "^0.577.0",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4",
-    "react-router-dom": "^7.14.1",
-    "tailwind-merge": "^3.5.0",
-    "tailwindcss": "^4.2.1",
     "three": "^0.180.0",
-    "typescript": "~5.9.3",
+    "typescript": "^6.0.3",
     "typescript-eslint": "^8.56.1",
-    "unicode-animations": "^1.0.3",
-    "vite": "^7.3.1",
-    "vite-plugin-electron": "^0.29.1",
-    "vite-plugin-electron-renderer": "^0.14.7",
-    "wait-on": "^9.0.10"
-  },
-  "main": "dist-electron/main.js",
-  "build": {
-    "appId": "com.accessimind.desktop",
-    "productName": "AccessiMind Desktop",
-    "directories": {
-      "output": "release"
-    },
-    "files": [
-      "dist/**/*",
-      "dist-electron/**/*"
-    ],
-    "win": {
-      "target": ["nsis", "portable"],
-      "icon": "public/icon.png"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
-    }
+    "vite": "^8.0.16",
+    "vitest": "^4.1.5"
   }
 }

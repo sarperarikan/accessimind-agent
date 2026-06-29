@@ -1,10 +1,16 @@
 import { Button } from "@nous-research/ui/ui/components/button";
+import { Checkbox } from "@nous-research/ui/ui/components/checkbox";
 import { ListItem } from "@nous-research/ui/ui/components/list-item";
 import { Spinner } from "@nous-research/ui/ui/components/spinner";
-import { Input } from "@/components/ui/input";
+import { Input } from "@nous-research/ui/ui/components/input";
+import { Label } from "@nous-research/ui/ui/components/label";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import type { GatewayClient } from "@/lib/gatewayClient";
 import { Check, Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { cn, themedBody } from "@/lib/utils";
+import { fuzzyRank } from "@/lib/fuzzy";
 
 /**
  * Two-stage model picker modal.
@@ -16,9 +22,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
  * Two invocation modes:
  *
  * 1. Chat-session mode (ChatSidebar) — pass `gw` + `sessionId`. The picker
- *    loads options via `model.options` JSON-RPC and emits the result as a
- *    slash command string (`/model <model> --provider <slug> [--global]`)
- *    through `onSubmit`, which the ChatPage pipes to `slashExec`.
+ *    loads options via `model.options` JSON-RPC and applies the choice via
+ *    `config.set`, so expensive-model confirmation can happen before switch.
  *
  * 2. Standalone mode (ModelsPage, Config settings) — pass a `loader` and
  *    `onApply`. The picker fetches options via the REST endpoint and calls
@@ -42,6 +47,23 @@ interface ModelOptionsResponse {
   providers?: ModelOptionProvider[];
 }
 
+interface ExpensiveModelConfirmResponse {
+  confirm_message?: string;
+  confirm_required?: boolean;
+  warning?: string;
+}
+
+interface ConfigSetResponse extends ExpensiveModelConfirmResponse {
+  value?: string;
+}
+
+interface PendingExpensiveConfirm {
+  message: string;
+  model: string;
+  persistGlobal: boolean;
+  provider: string;
+}
+
 interface Props {
   /** Chat-mode: when present, picker emits a slash command via onSubmit. */
   gw?: GatewayClient;
@@ -51,10 +73,14 @@ interface Props {
   /** Standalone-mode: when present (and onSubmit absent), picker calls onApply. */
   loader?(): Promise<ModelOptionsResponse>;
   onApply?(args: {
+    confirmExpensiveModel?: boolean;
     provider: string;
     model: string;
     persistGlobal: boolean;
-  }): Promise<void> | void;
+  }):
+    | Promise<ExpensiveModelConfirmResponse | void>
+    | ExpensiveModelConfirmResponse
+    | void;
 
   onClose(): void;
   title?: string;
@@ -85,24 +111,9 @@ export function ModelPickerDialog(props: Props) {
   const [query, setQuery] = useState("");
   const [persistGlobal, setPersistGlobal] = useState(alwaysGlobal);
   const [applying, setApplying] = useState(false);
+  const [pendingConfirm, setPendingConfirm] =
+    useState<PendingExpensiveConfirm | null>(null);
   const closedRef = useRef(false);
-
-  // WCAG 2.2 states for Roving tabIndex
-  const [focusedProviderSlug, setFocusedProviderSlug] = useState("");
-  const [focusedModelName, setFocusedModelName] = useState("");
-
-  const previousFocusRef = useRef<HTMLElement | null>(null);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-
-  // Focus restoration & store previous focus on mount
-  useEffect(() => {
-    previousFocusRef.current = document.activeElement as HTMLElement;
-    return () => {
-      if (previousFocusRef.current && typeof previousFocusRef.current.focus === "function") {
-        previousFocusRef.current.focus();
-      }
-    };
-  }, []);
 
   // Load providers + models on open.
   useEffect(() => {
@@ -122,9 +133,9 @@ export function ModelPickerDialog(props: Props) {
         setProviders(next);
         setCurrentModel(String(r?.model ?? ""));
         setCurrentProviderSlug(String(r?.provider ?? ""));
-        const initialSlug = (next.find((p) => p.is_current) ?? next[0])?.slug ?? "";
-        setSelectedSlug(initialSlug);
-        setFocusedProviderSlug(initialSlug);
+        setSelectedSlug(
+          (next.find((p) => p.is_current) ?? next[0])?.slug ?? "",
+        );
         setSelectedModel("");
         setLoading(false);
       })
@@ -141,6 +152,18 @@ export function ModelPickerDialog(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Esc closes.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   const selectedProvider = useMemo(
     () => providers.find((p) => p.slug === selectedSlug) ?? null,
     [providers, selectedSlug],
@@ -151,97 +174,93 @@ export function ModelPickerDialog(props: Props) {
     [selectedProvider],
   );
 
-  // Synchronize focusedProviderSlug when selectedSlug changes
-  useEffect(() => {
-    if (selectedSlug) {
-      setFocusedProviderSlug(selectedSlug);
-    }
-  }, [selectedSlug]);
+  const trimmedQuery = query.trim();
 
-  // Synchronize focusedModelName when models list changes
-  useEffect(() => {
-    if (models.length > 0) {
-      setFocusedModelName(selectedModel || models[0]);
-    } else {
-      setFocusedModelName("");
-    }
-  }, [models, selectedModel]);
-
-  // Escape closes, Tab/Shift+Tab trapping
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onClose();
-        return;
-      }
-
-      if (e.key === "Tab") {
-        if (!containerRef.current) return;
-        const focusableSelector =
-          'a[href], area[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), [tabindex="0"]:not([disabled])';
-        const focusables = Array.from(
-          containerRef.current.querySelectorAll<HTMLElement>(focusableSelector)
-        ).filter((el) => {
-          const style = window.getComputedStyle(el);
-          return style.display !== "none" && style.visibility !== "hidden";
-        });
-
-        if (focusables.length === 0) return;
-
-        const firstEl = focusables[0];
-        const lastEl = focusables[focusables.length - 1];
-
-        if (e.shiftKey) {
-          if (document.activeElement === firstEl) {
-            e.preventDefault();
-            lastEl.focus();
-          }
-        } else {
-          if (document.activeElement === lastEl) {
-            e.preventDefault();
-            firstEl.focus();
-          }
-        }
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  const needle = query.trim().toLowerCase();
-
+  // Fuzzy-ranked providers: match on name + slug + the provider's model ids so
+  // typing a model name surfaces its provider (preserves the prior behaviour
+  // where a model match also revealed its provider).
   const filteredProviders = useMemo(
     () =>
-      !needle
-        ? providers
-        : providers.filter(
-            (p) =>
-              p.name.toLowerCase().includes(needle) ||
-              p.slug.toLowerCase().includes(needle) ||
-              (p.models ?? []).some((m) => m.toLowerCase().includes(needle)),
-          ),
-    [providers, needle],
+      fuzzyRank(
+        providers,
+        trimmedQuery,
+        (p) => `${p.name} ${p.slug} ${(p.models ?? []).join(" ")}`,
+      ).map((r) => r.item),
+    [providers, trimmedQuery],
   );
 
+  // Fuzzy-ranked models carrying the matched character positions so the model
+  // list can highlight why each entry matched.
   const filteredModels = useMemo(
     () =>
-      !needle ? models : models.filter((m) => m.toLowerCase().includes(needle)),
-    [models, needle],
+      fuzzyRank(models, trimmedQuery, (m) => m).map((r) => ({
+        model: r.item,
+        positions: r.positions,
+      })),
+    [models, trimmedQuery],
   );
 
   const canConfirm = !!selectedProvider && !!selectedModel && !applying;
 
-  const confirm = async () => {
-    if (!canConfirm || !selectedProvider) return;
+  const applySelection = async (
+    confirmExpensiveModel = false,
+    forced?: PendingExpensiveConfirm,
+  ) => {
+    const providerSlug = forced?.provider ?? selectedProvider?.slug ?? "";
+    const model = forced?.model ?? selectedModel;
+    const shouldPersistGlobal = forced?.persistGlobal ?? persistGlobal;
+
+    if (!providerSlug || !model || applying) return;
+
     if (standalone && onApply) {
       setApplying(true);
       try {
-        await onApply({
-          provider: selectedProvider.slug,
-          model: selectedModel,
-          persistGlobal,
+        const result = await onApply({
+          confirmExpensiveModel,
+          provider: providerSlug,
+          model,
+          persistGlobal: shouldPersistGlobal,
         });
+        if (result?.confirm_required) {
+          setPendingConfirm({
+            provider: providerSlug,
+            model,
+            persistGlobal: shouldPersistGlobal,
+            message:
+              result.confirm_message ||
+              result.warning ||
+              "This model has unusually high known pricing.",
+          });
+          return;
+        }
+        onClose();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setApplying(false);
+      }
+    } else if (gw && sessionId) {
+      setApplying(true);
+      try {
+        const global = shouldPersistGlobal ? " --global" : "";
+        const result = await gw.request<ConfigSetResponse>("config.set", {
+          confirm_expensive_model: confirmExpensiveModel,
+          key: "model",
+          session_id: sessionId,
+          value: `${model} --provider ${providerSlug}${global}`,
+        });
+        if (result?.confirm_required) {
+          setPendingConfirm({
+            provider: providerSlug,
+            model,
+            persistGlobal: shouldPersistGlobal,
+            message:
+              result.confirm_message ||
+              result.warning ||
+              "This model has unusually high known pricing.",
+          });
+          return;
+        }
         onClose();
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
@@ -249,89 +268,25 @@ export function ModelPickerDialog(props: Props) {
         setApplying(false);
       }
     } else if (onSubmit) {
-      const global = persistGlobal ? " --global" : "";
-      onSubmit(
-        `/model ${selectedModel} --provider ${selectedProvider.slug}${global}`,
-      );
+      const global = shouldPersistGlobal ? " --global" : "";
+      onSubmit(`/model ${model} --provider ${providerSlug}${global}`);
       onClose();
     }
   };
 
-  // Keyboard navigation handlers
-  const handleSearchKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      const slug = focusedProviderSlug || filteredProviders[0]?.slug;
-      if (slug) {
-        setFocusedProviderSlug(slug);
-        requestAnimationFrame(() => {
-          const el = document.getElementById(`provider-opt-${slug}`);
-          if (el) el.focus();
-        });
-      }
-    }
+  const confirm = () => {
+    if (!canConfirm) return;
+    void applySelection();
   };
 
-  const handleProviderKeyDown = (e: React.KeyboardEvent, slug: string) => {
-    const idx = filteredProviders.findIndex((p) => p.slug === slug);
-    if (idx === -1) return;
-
-    let nextIdx = idx;
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      nextIdx = (idx + 1) % filteredProviders.length;
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      nextIdx = (idx - 1 + filteredProviders.length) % filteredProviders.length;
-    } else if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      setSelectedSlug(slug);
-      setSelectedModel("");
-      return;
-    } else {
-      return;
-    }
-
-    const nextSlug = filteredProviders[nextIdx].slug;
-    setFocusedProviderSlug(nextSlug);
-    requestAnimationFrame(() => {
-      const el = document.getElementById(`provider-opt-${nextSlug}`);
-      if (el) el.focus();
-    });
-  };
-
-  const handleModelKeyDown = (e: React.KeyboardEvent, model: string) => {
-    const idx = filteredModels.findIndex((m) => m === model);
-    if (idx === -1) return;
-
-    let nextIdx = idx;
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      nextIdx = (idx + 1) % filteredModels.length;
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      nextIdx = (idx - 1 + filteredModels.length) % filteredModels.length;
-    } else if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      setSelectedModel(model);
-      if (e.key === "Enter") {
-        setSelectedModel(model);
-        window.setTimeout(confirm, 0);
-      }
-      return;
-    } else {
-      return;
-    }
-
-    const nextModel = filteredModels[nextIdx];
-    setFocusedModelName(nextModel);
-    requestAnimationFrame(() => {
-      const el = document.getElementById(`model-opt-${nextModel}`);
-      if (el) el.focus();
-    });
-  };
-
-  return (
+  // Portal to document.body: the main dashboard column in App.tsx is
+  // `relative z-2`, which creates a stacking context that traps fixed
+  // descendants below the app sidebar (z-50). Without the portal this
+  // modal's z-[100] is scoped to z-2 and the sidebar covers its left
+  // edge — visible especially in the Large theme variants where the
+  // larger root font widens the dialog into the sidebar's column. See
+  // Toast.tsx for the same pattern.
+  return createPortal(
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-background/85 backdrop-blur-sm p-4"
       onClick={(e) => e.target === e.currentTarget && onClose()}
@@ -339,16 +294,13 @@ export function ModelPickerDialog(props: Props) {
       aria-modal="true"
       aria-labelledby="model-picker-title"
     >
-      <div 
-        ref={containerRef}
-        className="relative w-full max-w-3xl max-h-[80vh] border border-border bg-card shadow-2xl flex flex-col"
-      >
+      <div className={cn(themedBody, "relative w-full max-w-3xl max-h-[80vh] border border-border bg-card shadow-2xl flex flex-col")}>
         <Button
           ghost
           size="icon"
           onClick={onClose}
-          className="absolute right-2 top-2 text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none"
-          aria-label="Close dialog"
+          className="absolute right-2 top-2 text-muted-foreground hover:text-foreground"
+          aria-label="Close"
         >
           <X />
         </Button>
@@ -356,7 +308,7 @@ export function ModelPickerDialog(props: Props) {
         <header className="p-5 pb-3 border-b border-border">
           <h2
             id="model-picker-title"
-            className="font-display text-base tracking-wider uppercase"
+            className="font-mondwest text-display text-base tracking-wider"
           >
             {title}
           </h2>
@@ -374,9 +326,7 @@ export function ModelPickerDialog(props: Props) {
               placeholder="Filter providers and models…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={handleSearchKeyDown}
-              aria-label="Filter providers and models"
-              className="pl-7 h-8 text-sm focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none"
+              className="pl-7 h-8 text-sm"
             />
           </div>
         </div>
@@ -388,14 +338,11 @@ export function ModelPickerDialog(props: Props) {
             providers={filteredProviders}
             total={providers.length}
             selectedSlug={selectedSlug}
-            query={needle}
+            query={trimmedQuery}
             onSelect={(slug) => {
               setSelectedSlug(slug);
               setSelectedModel("");
             }}
-            focusedProviderSlug={focusedProviderSlug}
-            setFocusedProviderSlug={setFocusedProviderSlug}
-            onKeyDown={handleProviderKeyDown}
           />
 
           <ModelColumn
@@ -408,11 +355,13 @@ export function ModelPickerDialog(props: Props) {
             onSelect={setSelectedModel}
             onConfirm={(m) => {
               setSelectedModel(m);
-              window.setTimeout(confirm, 0);
+              void applySelection(false, {
+                provider: selectedProvider?.slug ?? "",
+                model: m,
+                persistGlobal,
+                message: "",
+              });
             }}
-            focusedModelName={focusedModelName}
-            setFocusedModelName={setFocusedModelName}
-            onKeyDown={handleModelKeyDown}
           />
         </div>
 
@@ -422,28 +371,52 @@ export function ModelPickerDialog(props: Props) {
               Saves to config.yaml — applies to new sessions.
             </span>
           ) : (
-            <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
-              <input
-                type="checkbox"
+            <div className="flex items-center gap-2">
+              <Checkbox
                 checked={persistGlobal}
-                onChange={(e) => setPersistGlobal(e.target.checked)}
-                className="cursor-pointer focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none"
+                id="model-picker-persist-global"
+                onCheckedChange={(checked) =>
+                  setPersistGlobal(checked === true)
+                }
               />
-              Persist globally (otherwise this session only)
-            </label>
+
+              <Label
+                className="font-mondwest normal-case tracking-normal text-xs text-muted-foreground cursor-pointer"
+                htmlFor="model-picker-persist-global"
+              >
+                Persist globally (otherwise this session only)
+              </Label>
+            </div>
           )}
 
           <div className="flex items-center gap-2 ml-auto">
-            <Button outlined onClick={onClose} disabled={applying} className="focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none">
+            <Button outlined onClick={onClose} disabled={applying}>
               Cancel
             </Button>
-            <Button onClick={confirm} disabled={!canConfirm} className="focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none">
+            <Button onClick={confirm} disabled={!canConfirm}>
               {applying ? <Spinner /> : "Switch"}
             </Button>
           </div>
         </footer>
       </div>
-    </div>
+      <ConfirmDialog
+        open={!!pendingConfirm}
+        title="Expensive Model Warning"
+        description={pendingConfirm?.message}
+        destructive
+        confirmLabel="Switch anyway"
+        cancelLabel="Cancel"
+        loading={applying}
+        onCancel={() => setPendingConfirm(null)}
+        onConfirm={() => {
+          const pending = pendingConfirm;
+          if (!pending) return;
+          setPendingConfirm(null);
+          void applySelection(true, pending);
+        }}
+      />
+    </div>,
+    document.body,
   );
 }
 
@@ -459,9 +432,6 @@ function ProviderColumn({
   selectedSlug,
   query,
   onSelect,
-  focusedProviderSlug,
-  setFocusedProviderSlug,
-  onKeyDown,
 }: {
   loading: boolean;
   error: string | null;
@@ -470,24 +440,16 @@ function ProviderColumn({
   selectedSlug: string;
   query: string;
   onSelect(slug: string): void;
-  focusedProviderSlug: string;
-  setFocusedProviderSlug(slug: string): void;
-  onKeyDown(e: React.KeyboardEvent, slug: string): void;
 }) {
   return (
-    <div 
-      role="listbox"
-      aria-label="LLM Providers"
-      aria-activedescendant={focusedProviderSlug ? `provider-opt-${focusedProviderSlug}` : undefined}
-      className="border-r border-border overflow-y-auto"
-    >
+    <div className="border-r border-border overflow-y-auto">
       {loading && (
         <div className="flex items-center gap-2 p-4 text-xs text-muted-foreground">
           <Spinner className="text-xs" /> loading…
         </div>
       )}
 
-      {error && <div role="alert" aria-live="assertive" className="p-4 text-xs text-destructive">{error}</div>}
+      {error && <div className="p-4 text-xs text-destructive">{error}</div>}
 
       {!loading && !error && providers.length === 0 && (
         <div className="p-4 text-xs text-muted-foreground italic">
@@ -501,19 +463,12 @@ function ProviderColumn({
 
       {providers.map((p) => {
         const active = p.slug === selectedSlug;
-        const isTabbable = p.slug === focusedProviderSlug;
         return (
           <ListItem
             key={p.slug}
-            id={`provider-opt-${p.slug}`}
-            role="option"
-            aria-selected={active}
-            tabIndex={isTabbable ? 0 : -1}
             active={active}
             onClick={() => onSelect(p.slug)}
-            onFocus={() => setFocusedProviderSlug(p.slug)}
-            onKeyDown={(e) => onKeyDown(e, p.slug)}
-            className={`items-start text-xs border-l-2 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-card focus-visible:outline-none ${
+            className={`items-start text-xs border-l-2 ${
               active ? "border-l-primary" : "border-l-transparent"
             }`}
           >
@@ -522,7 +477,7 @@ function ProviderColumn({
                 <span className="font-medium truncate">{p.name}</span>
                 {p.is_current && <CurrentTag />}
               </div>
-              <div className="text-[0.65rem] text-muted-foreground/80 font-mono truncate">
+              <div className="text-xs text-text-secondary font-mono truncate">
                 {p.slug} · {p.total_models ?? p.models?.length ?? 0} models
               </div>
             </div>
@@ -546,21 +501,15 @@ function ModelColumn({
   currentProviderSlug,
   onSelect,
   onConfirm,
-  focusedModelName,
-  setFocusedModelName,
-  onKeyDown,
 }: {
   provider: ModelOptionProvider | null;
-  models: string[];
+  models: { model: string; positions: number[] }[];
   allModels: string[];
   selectedModel: string;
   currentModel: string;
   currentProviderSlug: string;
   onSelect(model: string): void;
   onConfirm(model: string): void;
-  focusedModelName: string;
-  setFocusedModelName(model: string): void;
-  onKeyDown(e: React.KeyboardEvent, model: string): void;
 }) {
   if (!provider) {
     return (
@@ -573,12 +522,7 @@ function ModelColumn({
   }
 
   return (
-    <div 
-      role="listbox"
-      aria-label={`Models for ${provider.name}`}
-      aria-activedescendant={focusedModelName ? `model-opt-${focusedModelName}` : undefined}
-      className="overflow-y-auto"
-    >
+    <div className="overflow-y-auto">
       {provider.warning && (
         <div className="p-3 text-xs text-destructive border-b border-border">
           {provider.warning}
@@ -592,30 +536,25 @@ function ModelColumn({
             : "no models listed for this provider"}
         </div>
       ) : (
-        models.map((m) => {
+        models.map(({ model: m, positions }) => {
           const active = m === selectedModel;
           const isCurrent =
             m === currentModel && provider.slug === currentProviderSlug;
-          const isTabbable = m === focusedModelName;
 
           return (
             <ListItem
               key={m}
-              id={`model-opt-${m}`}
-              role="option"
-              aria-selected={active}
-              tabIndex={isTabbable ? 0 : -1}
               active={active}
               onClick={() => onSelect(m)}
-              onFocus={() => setFocusedModelName(m)}
-              onKeyDown={(e) => onKeyDown(e, m)}
               onDoubleClick={() => onConfirm(m)}
-              className="px-3 py-1.5 text-xs font-mono focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-card focus-visible:outline-none"
+              className="px-3 py-1.5 text-xs font-mono"
             >
               <Check
                 className={`h-3 w-3 shrink-0 ${active ? "text-primary" : "text-transparent"}`}
               />
-              <span className="flex-1 truncate">{m}</span>
+              <span className="flex-1 truncate">
+                <HighlightedText text={m} positions={positions} />
+              </span>
               {isCurrent && <CurrentTag />}
             </ListItem>
           );
@@ -627,8 +566,44 @@ function ModelColumn({
 
 function CurrentTag() {
   return (
-    <span className="text-[0.6rem] uppercase tracking-wider text-primary/80 shrink-0">
+    <span className="text-display text-xs tracking-wider text-primary shrink-0">
       current
     </span>
+  );
+}
+
+/**
+ * Render `text` with the characters at `positions` emphasised, so users can
+ * see which characters their fuzzy query matched. Positions are indices into
+ * `text`; out-of-range indices are ignored.
+ */
+function HighlightedText({
+  text,
+  positions,
+}: {
+  text: string;
+  positions: number[];
+}) {
+  if (!positions.length) {
+    return <>{text}</>;
+  }
+
+  const hit = new Set(positions);
+
+  return (
+    <>
+      {Array.from(text).map((ch, i) =>
+        hit.has(i) ? (
+          <mark
+            key={i}
+            className="bg-transparent text-primary font-semibold underline underline-offset-2"
+          >
+            {ch}
+          </mark>
+        ) : (
+          <span key={i}>{ch}</span>
+        ),
+      )}
+    </>
   );
 }

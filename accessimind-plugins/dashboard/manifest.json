@@ -1,0 +1,16 @@
+{
+  "name": "accessimind-chat",
+  "label": "AccessiMind Chat",
+  "description": "Modern chat UI for AccessiMind — message bubbles, markdown rendering, streaming responses. Overrides the built-in /chat terminal with a production-grade chat interface.",
+  "icon": "MessageSquare",
+  "version": "1.0.0",
+  "author": "AccessiMind",
+  "tab": {
+    "path": "/chat",
+    "override": "/chat"
+  },
+  "entry": "entry.js",
+  "css": "styles.css",
+  "has_api": false,
+  "source": "user"
+}

@@ -2,10 +2,14 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ComponentType,
+  type FocusEvent,
+  type MouseEvent,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   Routes,
   Route,
@@ -18,13 +22,13 @@ import {
   Activity,
   BarChart3,
   BookOpen,
-  Brain,
   Clock,
   Code,
   Cpu,
   Database,
   Download,
   Eye,
+  FolderOpen,
   FileText,
   Globe,
   Heart,
@@ -32,44 +36,61 @@ import {
   Menu,
   MessageSquare,
   Package,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Plug,
   Puzzle,
+  Radio,
   RotateCw,
   Settings,
   Shield,
+  ShieldCheck,
   Sparkles,
   Star,
   Terminal,
   Users,
+  Webhook,
   Wrench,
   X,
   Zap,
 } from "lucide-react";
 import { Button } from "@nous-research/ui/ui/components/button";
-import { ListItem } from "@nous-research/ui/ui/components/list-item";
 import { SelectionSwitcher } from "@nous-research/ui/ui/components/selection-switcher";
 import { Spinner } from "@nous-research/ui/ui/components/spinner";
-import { Typography } from "@/components/NouiTypography";
+import { Typography } from "@nous-research/ui/ui/components/typography/index";
 import { cn } from "@/lib/utils";
 import { Backdrop } from "@/components/Backdrop";
 import { SidebarFooter } from "@/components/SidebarFooter";
-import { SidebarStatusStrip } from "@/components/SidebarStatusStrip";
+import { SidebarStatusStrip, gatewayLine } from "@/components/SidebarStatusStrip";
+import { useBelowBreakpoint } from "@nous-research/ui/hooks/use-below-breakpoint";
+import { useSidebarStatus } from "@/hooks/useSidebarStatus";
+import { AuthWidget } from "@/components/AuthWidget";
 import { PageHeaderProvider } from "@/contexts/PageHeaderProvider";
+import { ProfileProvider } from "@/contexts/ProfileProvider";
+import { useProfileScope } from "@/contexts/useProfileScope";
+import { ProfileSwitcher } from "@/components/ProfileSwitcher";
+import { ProfileScopeBanner } from "@/components/ProfileScopeBanner";
 import { useSystemActions } from "@/contexts/useSystemActions";
 import type { SystemAction } from "@/contexts/system-actions-context";
 import ConfigPage from "@/pages/ConfigPage";
 import DocsPage from "@/pages/DocsPage";
 import EnvPage from "@/pages/EnvPage";
+import FilesPage from "@/pages/FilesPage";
 import SessionsPage from "@/pages/SessionsPage";
 import LogsPage from "@/pages/LogsPage";
 import AnalyticsPage from "@/pages/AnalyticsPage";
 import ModelsPage from "@/pages/ModelsPage";
 import CronPage from "@/pages/CronPage";
 import ProfilesPage from "@/pages/ProfilesPage";
+import ProfileBuilderPage from "@/pages/ProfileBuilderPage";
 import SkillsPage from "@/pages/SkillsPage";
 import PluginsPage from "@/pages/PluginsPage";
+import McpPage from "@/pages/McpPage";
+import PairingPage from "@/pages/PairingPage";
+import ChannelsPage from "@/pages/ChannelsPage";
+import WebhooksPage from "@/pages/WebhooksPage";
+import SystemPage from "@/pages/SystemPage";
 import ChatPage from "@/pages/ChatPage";
-import LoginPage from "@/pages/LoginPage";
-import SetupPage from "@/pages/SetupPage";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { ThemeSwitcher } from "@/components/ThemeSwitcher";
 import { useI18n } from "@/i18n";
@@ -79,6 +100,7 @@ import type { PluginManifest } from "@/plugins";
 import { useTheme } from "@/themes";
 import { isDashboardEmbeddedChatEnabled } from "@/lib/dashboard-flags";
 import { api } from "@/lib/api";
+import type { StatusResponse } from "@/lib/api";
 
 function RootRedirect() {
   return <Navigate to="/sessions" replace />;
@@ -111,13 +133,20 @@ const CHAT_NAV_ITEM: NavItem = {
 const BUILTIN_ROUTES_CORE: Record<string, ComponentType> = {
   "/": RootRedirect,
   "/sessions": SessionsPage,
+  "/files": FilesPage,
   "/analytics": AnalyticsPage,
   "/models": ModelsPage,
   "/logs": LogsPage,
   "/cron": CronPage,
   "/skills": SkillsPage,
   "/plugins": PluginsPage,
+  "/mcp": McpPage,
+  "/pairing": PairingPage,
+  "/channels": ChannelsPage,
+  "/webhooks": WebhooksPage,
+  "/system": SystemPage,
   "/profiles": ProfilesPage,
+  "/profiles/new": ProfileBuilderPage,
   "/config": ConfigPage,
   "/env": EnvPage,
   "/docs": DocsPage,
@@ -138,6 +167,7 @@ const BUILTIN_NAV_REST: NavItem[] = [
     label: "Sessions",
     icon: MessageSquare,
   },
+  { path: "/files", label: "Files", icon: FolderOpen },
   {
     path: "/analytics",
     labelKey: "analytics",
@@ -154,9 +184,14 @@ const BUILTIN_NAV_REST: NavItem[] = [
   { path: "/cron", labelKey: "cron", label: "Cron", icon: Clock },
   { path: "/skills", labelKey: "skills", label: "Skills", icon: Package },
   { path: "/plugins", labelKey: "plugins", label: "Plugins", icon: Puzzle },
+  { path: "/mcp", label: "MCP", icon: Plug },
+  { path: "/channels", label: "Channels", icon: Radio },
+  { path: "/webhooks", label: "Webhooks", icon: Webhook },
+  { path: "/pairing", label: "Pairing", icon: ShieldCheck },
   { path: "/profiles", labelKey: "profiles", label: "Profiles", icon: Users },
   { path: "/config", labelKey: "config", label: "Config", icon: Settings },
   { path: "/env", labelKey: "keys", label: "Keys", icon: KeyRound },
+  { path: "/system", label: "System", icon: Wrench },
   {
     path: "/docs",
     labelKey: "documentation",
@@ -171,6 +206,7 @@ const ICON_MAP: Record<string, ComponentType<{ className?: string }>> = {
   Clock,
   Cpu,
   FileText,
+  FolderOpen,
   KeyRound,
   MessageSquare,
   Package,
@@ -308,37 +344,7 @@ function buildRoutes(
   return routes;
 }
 
-function applyAccessibility(display: any) {
-  const root = document.documentElement;
-  if (!root) return;
-  
-  // Contrast
-  root.classList.remove("a11y-high-contrast");
-  if (display?.accessibility_contrast === "high-contrast") {
-    root.classList.add("a11y-high-contrast");
-  }
-  
-  // Text size
-  const textSize = display?.accessibility_text_scale || "md";
-  root.classList.remove("a11y-text-sm", "a11y-text-md", "a11y-text-lg", "a11y-text-xl");
-  root.classList.add(`a11y-text-${textSize}`);
-  
-  // Font
-  root.classList.remove("a11y-font-dyslexic");
-  if (display?.accessibility_font_style === "dyslexic") {
-    root.classList.add("a11y-font-dyslexic");
-  }
-}
-
-// Synchronously run on file load to avoid flash of unstyled page
-try {
-  const cached = localStorage.getItem("accessimind_a11y_settings");
-  if (cached) {
-    applyAccessibility(JSON.parse(cached));
-  }
-} catch (e) {
-  console.error("Failed to parse cached accessimind_a11y_settings:", e);
-}
+const SIDEBAR_COLLAPSED_KEY = "hermes-sidebar-collapsed";
 
 export default function App() {
   const { t } = useI18n();
@@ -347,78 +353,31 @@ export default function App() {
   const { theme } = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
   const closeMobile = useCallback(() => setMobileOpen(false), []);
+
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
+  const toggleCollapsed = useCallback(() => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(next));
+      } catch { /* localStorage may be unavailable in private browsing */ }
+      return next;
+    });
+  }, []);
+  const isMobile = useBelowBreakpoint(1024);
+  const isDesktopCollapsed = collapsed && !isMobile;
+  const tooltipWarmRef = useRef(0);
+  const sidebarStatus = useSidebarStatus();
   const isDocsRoute = pathname === "/docs" || pathname === "/docs/";
   const normalizedPath = pathname.replace(/\/$/, "") || "/";
   const isChatRoute = normalizedPath === "/chat";
   const embeddedChat = isDashboardEmbeddedChatEnabled();
-
-  const [currentUser, setCurrentUser] = useState<{ id: string; username: string; role: string } | null>(null);
-  const [setupCompleted, setSetupCompleted] = useState<boolean | null>(null);
-  const [loadingUser, setLoadingUser] = useState(true);
-
-  // Load and apply accessibility settings globally
-  useEffect(() => {
-    const fetchAndApply = () => {
-      api.getConfigPublic()
-        .then((cfg) => {
-          const display = cfg?.display || {};
-          applyAccessibility(display);
-          localStorage.setItem("accessimind_a11y_settings", JSON.stringify(display));
-        })
-        .catch((err) => {
-          console.error("Failed to load public accessibility settings:", err);
-        });
-    };
-
-    fetchAndApply();
-
-    window.addEventListener("accessimind-config-saved", fetchAndApply);
-    return () => {
-      window.removeEventListener("accessimind-config-saved", fetchAndApply);
-    };
-  }, []);
-
-  useEffect(() => {
-    const jwt = localStorage.getItem("hermes_jwt");
-    const hasInjectedToken = !!(window.__HERMES_SESSION_TOKEN__ || window.__HERMES_PUBLIC_TOKEN__);
-    
-    api.getSetupStatus()
-      .then((setupRes) => {
-        setSetupCompleted(setupRes.setup_completed);
-        
-        if (!setupRes.setup_completed) {
-          setLoadingUser(false);
-          return;
-        }
-
-        if (jwt || hasInjectedToken) {
-          api.getMe()
-            .then((res) => {
-              setCurrentUser(res.user);
-            })
-            .catch((err) => {
-              console.error("Auth check failed:", err);
-              if (jwt) {
-                localStorage.removeItem("hermes_jwt");
-              }
-            })
-            .finally(() => {
-              setLoadingUser(false);
-            });
-        } else {
-          setLoadingUser(false);
-        }
-      })
-      .catch((err) => {
-        console.error("Failed to check setup status:", err);
-        setLoadingUser(false);
-      });
-  }, []);
-
-  const handleLogout = () => {
-    localStorage.removeItem("hermes_jwt");
-    setCurrentUser(null);
-  };
 
   // `dashboard.show_token_analytics` gates the Analytics nav item.  The
   // page itself remains reachable by URL (it renders an explanation when
@@ -426,19 +385,16 @@ export default function App() {
   // surfacing misleading token/cost numbers in the sidebar.  Default off.
   const [showTokenAnalytics, setShowTokenAnalytics] = useState(false);
   useEffect(() => {
-    if (!currentUser) return;
-    if (currentUser.role !== "admin") {
-      setShowTokenAnalytics(false);
-      return;
-    }
     api
       .getConfig()
       .then((cfg) => {
-        const dash = (cfg?.dashboard ?? {}) as { show_token_analytics?: unknown };
+        const dash = (cfg?.dashboard ?? {}) as {
+          show_token_analytics?: unknown;
+        };
         setShowTokenAnalytics(dash.show_token_analytics === true);
       })
       .catch(() => setShowTokenAnalytics(false));
-  }, [currentUser]);
+  }, []);
 
   // A plugin can replace the built-in /chat page via `tab.override: "/chat"`
   // in its manifest.  When one does, `buildRoutes` already swaps the route
@@ -471,42 +427,22 @@ export default function App() {
   );
 
   const builtinNav = useMemo(() => {
-    let base = embeddedChat
+    const base = embeddedChat
       ? [CHAT_NAV_ITEM, ...BUILTIN_NAV_REST]
       : BUILTIN_NAV_REST;
-    if (currentUser && currentUser.role !== "admin") {
-      base = base.filter((n) => n.path === "/sessions" || n.path === "/chat" || n.path === "/docs");
-    } else {
-      if (!showTokenAnalytics) {
-        base = base.filter((n) => n.path !== "/analytics");
-      }
-    }
-    return base;
-  }, [embeddedChat, showTokenAnalytics, currentUser]);
+    return showTokenAnalytics
+      ? base
+      : base.filter((n) => n.path !== "/analytics");
+  }, [embeddedChat, showTokenAnalytics]);
 
-  const sidebarNav = useMemo(() => {
-    const partitioned = partitionSidebarNav(builtinNav, manifests);
-    if (currentUser && currentUser.role !== "admin") {
-      return { coreItems: partitioned.coreItems, pluginItems: [] };
-    }
-    return partitioned;
-  }, [builtinNav, manifests, currentUser]);
-
+  const sidebarNav = useMemo(
+    () => partitionSidebarNav(builtinNav, manifests),
+    [builtinNav, manifests],
+  );
   const routes = useMemo(
     () => buildRoutes(builtinRoutes, manifests),
     [builtinRoutes, manifests],
   );
-
-  const allowedRoutes = useMemo(() => {
-    if (!currentUser) return [];
-    if (currentUser.role === "admin") return routes;
-    return routes.filter(({ path }) => 
-      path === "/" || 
-      path === "/sessions" || 
-      path === "/chat" || 
-      path === "/docs"
-    );
-  }, [routes, currentUser]);
   const pluginTabMeta = useMemo(
     () =>
       manifests
@@ -543,44 +479,38 @@ export default function App() {
     return () => mql.removeEventListener("change", onChange);
   }, []);
 
-  if (loadingUser) {
-    return (
-      <div className="flex h-screen w-screen items-center justify-center bg-[#041c1c] text-[#ffe6cb] font-mondwest uppercase select-none">
-        <div className="flex flex-col items-center gap-4">
-          <Spinner className="text-[2rem] text-[#ffe6cb]" />
-          <span className="text-sm tracking-[0.2em]">Sistem Yükleniyor...</span>
-        </div>
-      </div>
-    );
-  }
-
-  if (setupCompleted === false) {
-    return <SetupPage onSetupSuccess={(user) => { setSetupCompleted(true); setCurrentUser(user); }} />;
-  }
-
-  if (!currentUser) {
-    return <LoginPage onLoginSuccess={(user) => setCurrentUser(user)} />;
-  }
+  // WCAG 2.2: Route değişiminde focus'u ana içeriğe taşı
+  // Ekran okuyucu kullanıcıları için sayfa değiştiğinde bildirim
+  const mainContentRef = useRef<HTMLDivElement>(null);
+  const { pathname: _pathnameForFocus } = useLocation();
+  useEffect(() => {
+    // Route değişiminde focus'u ana içeriğe taşı
+    if (mainContentRef.current) {
+      mainContentRef.current.focus({ preventScroll: false });
+    }
+  }, [_pathnameForFocus]);
 
   return (
+    <ProfileProvider>
     <div
       data-layout-variant={layoutVariant}
-      className="font-mondwest flex h-dvh max-h-dvh min-h-0 flex-col overflow-hidden bg-black uppercase text-midground antialiased"
+      className="flex h-dvh max-h-dvh min-h-0 flex-col overflow-hidden bg-black text-text-primary antialiased"
     >
-      <a 
-        href="#main-content" 
-        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[9999] focus:bg-[#ffe6cb] focus:text-[#041c1c] focus:px-4 focus:py-2 focus:font-bold focus:border border-[#ffe6cb] focus:outline-none focus:ring-2 focus:ring-[#ffe6cb] focus:ring-offset-2 focus:ring-offset-[#041c1c] rounded transition-all tracking-wider text-xs"
-      >
-        Ana İçeriğe Geç (Skip to Main)
-      </a>
       <SelectionSwitcher />
       <Backdrop />
       <PluginSlot name="backdrop" />
+      {/* WCAG 2.2: Skip-link — ekran okuyucu kullanıcıları için ana içeriğe atla */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[9999] focus:px-4 focus:py-2 focus:bg-white focus:text-black focus:font-bold focus:rounded focus:shadow-lg"
+      >
+        Ana içeriğe geç
+      </a>
 
       <header
         className={cn(
-          "lg:hidden fixed top-0 left-0 right-0 z-40 h-12",
-          "flex items-center gap-2 px-3",
+          "lg:hidden fixed top-0 left-0 right-0 z-40 min-h-14",
+          "flex items-center gap-2 px-4 py-2",
           "border-b border-current/20",
           "bg-background-base/90 backdrop-blur-sm",
         )}
@@ -597,7 +527,7 @@ export default function App() {
           aria-label={t.app.openNavigation}
           aria-expanded={mobileOpen}
           aria-controls="app-sidebar"
-          className="text-midground/70 hover:text-midground"
+          className="text-text-secondary hover:text-midground"
         >
           <Menu />
         </Button>
@@ -623,8 +553,9 @@ export default function App() {
       )}
 
       <PluginSlot name="header-banner" />
+      <ProfileScopeBanner />
 
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden pt-12 lg:pt-0">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden pt-14 lg:pt-0">
         <div className="flex min-h-0 min-w-0 flex-1">
           <aside
             id="app-sidebar"
@@ -633,9 +564,11 @@ export default function App() {
               "fixed top-0 left-0 z-50 flex h-dvh max-h-dvh w-64 min-h-0 flex-col",
               "border-r border-current/20",
               "bg-background-base/95 backdrop-blur-sm",
-              "transition-transform duration-200 ease-out",
+              "transition-[transform] duration-200 ease-out",
               mobileOpen ? "translate-x-0" : "-translate-x-full",
-              "lg:sticky lg:top-0 lg:translate-x-0 lg:shrink-0",
+              "lg:sticky lg:top-0 lg:translate-x-0 lg:shrink-0 lg:overflow-hidden",
+              "lg:transition-[width] lg:duration-[600ms] lg:ease-[cubic-bezier(0.33,1.35,0.62,1)]",
+              collapsed && "lg:w-14",
             )}
             style={{
               background: "var(--component-sidebar-background)",
@@ -645,18 +578,26 @@ export default function App() {
           >
             <div
               className={cn(
-                "flex h-14 shrink-0 items-center justify-between gap-2 px-4",
+                "flex h-14 shrink-0 items-center gap-2",
                 "border-b border-current/20",
+                collapsed ? "lg:justify-center lg:px-0" : "px-4 justify-between",
               )}
             >
-              <div className="flex items-center gap-2">
+              <div
+                className={cn(
+                  "flex items-center gap-2",
+                  collapsed && "lg:hidden",
+                )}
+              >
                 <PluginSlot name="header-left" />
-                <Brain className="h-5 w-5 text-midground shrink-0 animate-pulse" />
+
                 <Typography
-                  className="font-bold text-[1.125rem] leading-[0.95] tracking-[0.0525rem] text-midground"
+                  className="font-bold text-[1.125rem] leading-[0.95] tracking-[0.0525rem] text-midground uppercase"
                   style={{ mixBlendMode: "plus-lighter" }}
                 >
-                  AccessiMind
+                  Hermes
+                  <br />
+                  Agent
                 </Typography>
               </div>
 
@@ -665,11 +606,29 @@ export default function App() {
                 size="icon"
                 onClick={closeMobile}
                 aria-label={t.app.closeNavigation}
-                className="lg:hidden text-midground/70 hover:text-midground"
+                className="lg:hidden text-text-secondary hover:text-midground"
               >
                 <X />
               </Button>
+
+              <Button
+                ghost
+                size="icon"
+                onClick={toggleCollapsed}
+                aria-label={
+                  collapsed ? t.common.expand : t.common.collapse
+                }
+                className="hidden lg:flex text-text-secondary hover:text-midground"
+              >
+                {collapsed ? (
+                  <PanelLeftOpen className="h-4 w-4" />
+                ) : (
+                  <PanelLeftClose className="h-4 w-4" />
+                )}
+              </Button>
             </div>
+
+            <ProfileSwitcher collapsed={isDesktopCollapsed} />
 
             <nav
               className="min-h-0 w-full flex-1 overflow-y-auto overflow-x-hidden border-t border-current/10 py-2"
@@ -679,25 +638,28 @@ export default function App() {
                 {sidebarNav.coreItems.map((item) => (
                   <SidebarNavLink
                     closeMobile={closeMobile}
+                    collapsed={isDesktopCollapsed}
                     item={item}
                     key={item.path}
                     t={t}
+                    tooltipWarmRef={tooltipWarmRef}
                   />
                 ))}
               </ul>
 
               {sidebarNav.pluginItems.length > 0 && (
                 <div
-                  aria-labelledby="accessimind-sidebar-plugin-nav-heading"
+                  aria-labelledby="hermes-sidebar-plugin-nav-heading"
                   className="flex flex-col border-t border-current/10 pb-2"
                   role="group"
                 >
                   <span
                     className={cn(
                       "px-5 pt-2.5 pb-1",
-                      "font-mondwest text-[0.6rem] tracking-[0.15em] uppercase opacity-30",
+                      "font-mondwest text-display text-xs tracking-[0.12em] text-text-tertiary",
+                      isDesktopCollapsed && "lg:hidden",
                     )}
-                    id="accessimind-sidebar-plugin-nav-heading"
+                    id="hermes-sidebar-plugin-nav-heading"
                   >
                     {t.app.pluginNavSection}
                   </span>
@@ -706,9 +668,11 @@ export default function App() {
                     {sidebarNav.pluginItems.map((item) => (
                       <SidebarNavLink
                         closeMobile={closeMobile}
+                        collapsed={isDesktopCollapsed}
                         item={item}
                         key={item.path}
                         t={t}
+                        tooltipWarmRef={tooltipWarmRef}
                       />
                     ))}
                   </ul>
@@ -716,78 +680,99 @@ export default function App() {
               )}
             </nav>
 
-            {currentUser && currentUser.role === "admin" && (
-              <SidebarSystemActions onNavigate={closeMobile} />
-            )}
-
-            {currentUser && (
-              <div className="flex shrink-0 items-center justify-between border-t border-[#ffe6cb]/10 px-5 py-3 bg-[#ffe6cb]/2">
-                <div className="flex flex-col min-w-0">
-                  <span className="font-mondwest text-[0.8rem] tracking-[0.1rem] text-[#ffe6cb] truncate">
-                    {currentUser.username}
-                  </span>
-                  <span className="font-mondwest text-[0.6rem] tracking-[0.1rem] text-[#ffe6cb]/40 uppercase">
-                    {currentUser.role === "admin" ? "Yönetici" : "Standart"}
-                  </span>
-                </div>
-                <button
-                  onClick={handleLogout}
-                  className="font-mondwest text-[0.7rem] tracking-[0.1em] text-red-500 hover:text-red-400 transition-colors cursor-pointer border border-red-500/20 px-2 py-0.5 rounded hover:bg-red-500/10"
-                >
-                  Çıkış
-                </button>
-              </div>
-            )}
+            <SidebarSystemActions
+              collapsed={isDesktopCollapsed}
+              onNavigate={closeMobile}
+              status={sidebarStatus}
+              tooltipWarmRef={tooltipWarmRef}
+            />
 
             <div
               className={cn(
-                "flex shrink-0 items-center justify-between gap-2",
+                "flex shrink-0 items-center gap-2",
                 "px-3 py-2",
                 "border-t border-current/20",
+                isDesktopCollapsed
+                  ? "lg:flex-col lg:items-start lg:gap-3 lg:py-3"
+                  : "justify-between",
               )}
             >
-              <div className="flex min-w-0 items-center gap-2">
+              <div
+                className={cn(
+                  "flex min-w-0 items-center gap-2",
+                  isDesktopCollapsed && "lg:flex-col lg:items-start",
+                )}
+              >
                 <PluginSlot name="header-right" />
-                <ThemeSwitcher dropUp />
-                <LanguageSwitcher dropUp />
+
+                <SidebarIconWithTooltip
+                  collapsed={isDesktopCollapsed}
+                  label={t.theme?.switchTheme ?? "Switch theme"}
+                  tooltipWarmRef={tooltipWarmRef}
+                >
+                  <ThemeSwitcher collapsed={isDesktopCollapsed} dropUp />
+                </SidebarIconWithTooltip>
+
+                <SidebarIconWithTooltip
+                  collapsed={isDesktopCollapsed}
+                  label={t.language.switchTo}
+                  tooltipWarmRef={tooltipWarmRef}
+                >
+                  <LanguageSwitcher collapsed={isDesktopCollapsed} dropUp />
+                </SidebarIconWithTooltip>
               </div>
             </div>
 
-            <SidebarFooter />
+            <div
+              className={cn(
+                "flex shrink-0 flex-col",
+                isDesktopCollapsed && "lg:hidden",
+              )}
+            >
+              <AuthWidget />
+              <SidebarFooter status={sidebarStatus} />
+            </div>
           </aside>
 
           <PageHeaderProvider pluginTabs={pluginTabMeta}>
             <div
+              id="main-content"
+              role="main"
+              tabIndex={-1}
+              ref={mainContentRef}
+              aria-label={t.app.brand}
               className={cn(
-                "relative z-2 flex min-w-0 min-h-0 flex-1 flex-col",
+                "relative z-2 flex min-w-0 min-h-0 flex-1 flex-col outline-none",
                 "px-3 sm:px-6",
                 isChatRoute
-                  ? "pb-3 pt-1 sm:pb-4 sm:pt-2 lg:pt-4"
-                  : "pt-2 sm:pt-4 lg:pt-6 pb-4 sm:pb-8",
+                  ? "pb-0 pt-1 sm:pt-2 lg:pt-4"
+                  : "pt-2 sm:pt-4 lg:pt-6",
                 isDocsRoute && "min-h-0 flex-1",
               )}
             >
               <PluginSlot name="pre-main" />
               <div
-                id="main-content"
-                tabIndex={-1}
                 className={cn(
-                  "w-full min-w-0 outline-none",
+                  "w-full min-w-0",
+                  !isChatRoute &&
+                    "pb-[calc(2rem+env(safe-area-inset-bottom,0px))] lg:pb-8",
                   (isDocsRoute || isChatRoute) &&
                     "min-h-0 flex flex-1 flex-col",
                 )}
               >
-                <Routes>
-                  {allowedRoutes.map(({ key, path, element }) => (
-                    <Route key={key} path={path} element={element} />
-                  ))}
-                  <Route
-                    path="*"
-                    element={
-                      <UnknownRouteFallback pluginsLoading={pluginsLoading} />
-                    }
-                  />
-                </Routes>
+                <ProfileKeyedRoutes>
+                  <Routes>
+                    {routes.map(({ key, path, element }) => (
+                      <Route key={key} path={path} element={element} />
+                    ))}
+                    <Route
+                      path="*"
+                      element={
+                        <UnknownRouteFallback pluginsLoading={pluginsLoading} />
+                      }
+                    />
+                  </Routes>
+                </ProfileKeyedRoutes>
 
                 {embeddedChat &&
                   !chatOverriddenByPlugin &&
@@ -825,30 +810,70 @@ export default function App() {
 
       <PluginSlot name="overlay" />
     </div>
+    </ProfileProvider>
   );
 }
 
-function SidebarNavLink({ closeMobile, item, t }: SidebarNavLinkProps) {
+/**
+ * Remounts the entire routed page tree when the global management profile
+ * changes. Pages load their data on mount; without this, a page opened
+ * under profile A would keep showing A's state while writes (via the
+ * fetchJSON ?profile= injection) silently targeted the newly selected
+ * profile B — the exact stale-target footgun the switcher exists to kill.
+ * Keying by profile resets every page's local state so it refetches under
+ * the new scope. The persistent ChatPage host below handles its own
+ * remount (channel keyed on scopedProfile).
+ */
+function ProfileKeyedRoutes({ children }: { children: ReactNode }) {
+  const { profile } = useProfileScope();
+  return <div key={profile || "__own__"} className="contents">{children}</div>;
+}
+
+function SidebarNavLink({
+  closeMobile,
+  collapsed,
+  item,
+  tooltipWarmRef,
+  t,
+}: SidebarNavLinkProps) {
   const { path, label, labelKey, icon: Icon } = item;
+  const [hovered, setHovered] = useState(false);
+  const [tooltipAnchor, setTooltipAnchor] = useState<HTMLElement | null>(null);
 
   const navLabel = labelKey
     ? ((t.app.nav as Record<string, string>)[labelKey] ?? label)
     : label;
+  const showTooltip = (event: MouseEvent<HTMLElement> | FocusEvent<HTMLElement>) => {
+    setHovered(true);
+    setTooltipAnchor(event.currentTarget);
+  };
+  const hideTooltip = () => {
+    setHovered(false);
+    setTooltipAnchor(null);
+  };
 
   return (
-    <li>
+    <li
+      onMouseEnter={collapsed ? showTooltip : undefined}
+      onMouseLeave={collapsed ? hideTooltip : undefined}
+    >
       <NavLink
         to={path}
         end={path === "/sessions"}
         onClick={closeMobile}
+        aria-label={collapsed ? navLabel : undefined}
+        onFocus={collapsed ? showTooltip : undefined}
+        onBlur={collapsed ? hideTooltip : undefined}
         className={({ isActive }) =>
           cn(
-            "group relative flex items-center gap-3",
+            "group/nav relative flex items-center gap-3",
             "px-5 py-2.5",
-            "font-mondwest text-[0.8rem] tracking-[0.12em]",
+            "font-mondwest text-display uppercase text-sm tracking-[0.12em]",
             "whitespace-nowrap transition-colors cursor-pointer",
             "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-midground",
-            isActive ? "text-midground" : "opacity-60 hover:opacity-100",
+            isActive
+              ? "text-midground"
+              : "text-text-secondary hover:text-midground",
           )
         }
         style={{
@@ -858,11 +883,19 @@ function SidebarNavLink({ closeMobile, item, t }: SidebarNavLinkProps) {
         {({ isActive }) => (
           <>
             <Icon className="h-3.5 w-3.5 shrink-0" />
-            <span className="truncate">{navLabel}</span>
+
+            <span
+              className={cn(
+                "truncate transition-opacity duration-300",
+                collapsed ? "lg:opacity-0" : "lg:opacity-100",
+              )}
+            >
+              {navLabel}
+            </span>
 
             <span
               aria-hidden
-              className="absolute inset-y-0.5 left-1.5 right-1.5 bg-midground opacity-0 pointer-events-none transition-opacity duration-200 group-hover:opacity-5"
+              className="absolute inset-y-0.5 left-1.5 right-1.5 bg-midground opacity-0 pointer-events-none transition-opacity duration-200 group-hover/nav:opacity-5"
             />
 
             {isActive && (
@@ -875,15 +908,25 @@ function SidebarNavLink({ closeMobile, item, t }: SidebarNavLinkProps) {
           </>
         )}
       </NavLink>
+
+      {collapsed && hovered && tooltipAnchor && (
+        <SidebarTooltip anchor={tooltipAnchor} label={navLabel} warmRef={tooltipWarmRef} />
+      )}
     </li>
   );
 }
 
-function SidebarSystemActions({ onNavigate }: { onNavigate: () => void }) {
+function SidebarSystemActions({
+  collapsed,
+  onNavigate,
+  status,
+  tooltipWarmRef,
+}: SidebarSystemActionsProps) {
   const { t } = useI18n();
   const navigate = useNavigate();
   const { activeAction, isBusy, isRunning, pendingAction, runAction } =
     useSystemActions();
+  const canUpdateHermes = status?.can_update_hermes === true;
 
   const items: SystemActionItem[] = [
     {
@@ -893,14 +936,16 @@ function SidebarSystemActions({ onNavigate }: { onNavigate: () => void }) {
       runningLabel: t.status.restartingGateway,
       spin: true,
     },
-    {
+  ];
+  if (canUpdateHermes) {
+    items.push({
       action: "update",
       icon: Download,
       label: t.status.updateHermes,
       runningLabel: t.status.updatingHermes,
       spin: false,
-    },
-  ];
+    });
+  }
 
   const handleClick = (action: SystemAction) => {
     if (isBusy) return;
@@ -920,74 +965,273 @@ function SidebarSystemActions({ onNavigate }: { onNavigate: () => void }) {
       <span
         className={cn(
           "px-5 pt-0.5 pb-0.5",
-          "font-mondwest text-[0.6rem] tracking-[0.15em] uppercase opacity-30",
+          "font-mondwest text-display text-xs tracking-[0.12em] text-text-tertiary",
+          collapsed && "lg:hidden",
         )}
       >
         {t.app.system}
       </span>
 
-      <SidebarStatusStrip />
+      <div className={cn(collapsed && "lg:hidden")}>
+        <SidebarStatusStrip status={status} />
+      </div>
+
+      <GatewayDot collapsed={collapsed} status={status} tooltipWarmRef={tooltipWarmRef} />
 
       <ul className="flex flex-col">
-        {items.map(({ action, icon: Icon, label, runningLabel, spin }) => {
-          const isPending = pendingAction === action;
-          const isActionRunning =
-            activeAction === action && isRunning && !isPending;
-          const busy = isPending || isActionRunning;
-          const displayLabel = isActionRunning ? runningLabel : label;
-          const disabled = isBusy && !busy;
-
-          return (
-            <li key={action}>
-              <ListItem
-                onClick={() => handleClick(action)}
-                disabled={disabled}
-                aria-busy={busy}
-                active={busy}
-                className={cn(
-                  "gap-3 px-5 py-1.5 whitespace-nowrap",
-                  "font-mondwest text-[0.75rem] tracking-[0.1em]",
-                  "transition-opacity",
-                  busy
-                    ? "text-midground opacity-100"
-                    : "opacity-60 hover:opacity-100",
-                  "disabled:opacity-30",
-                )}
-              >
-                {isPending ? (
-                  <Spinner className="shrink-0 text-[0.875rem]" />
-                ) : isActionRunning && spin ? (
-                  <Spinner className="shrink-0 text-[0.875rem]" />
-                ) : (
-                  <Icon
-                    className={cn(
-                      "h-3.5 w-3.5 shrink-0",
-                      isActionRunning && !spin && "animate-pulse",
-                    )}
-                  />
-                )}
-
-                <span className="truncate">{displayLabel}</span>
-
-                <span
-                  aria-hidden
-                  className="absolute inset-y-0.5 left-1.5 right-1.5 bg-midground opacity-0 pointer-events-none transition-opacity duration-200 group-hover:opacity-5"
-                />
-
-                {busy && (
-                  <span
-                    aria-hidden
-                    className="absolute left-0 top-0 bottom-0 w-px bg-midground"
-                    style={{ mixBlendMode: "plus-lighter" }}
-                  />
-                )}
-              </ListItem>
-            </li>
-          );
-        })}
+        {items.map((item) => (
+          <SystemActionButton
+            key={item.action}
+            collapsed={collapsed}
+            disabled={isBusy && !(pendingAction === item.action || (activeAction === item.action && isRunning))}
+            tooltipWarmRef={tooltipWarmRef}
+            isPending={pendingAction === item.action}
+            isRunning={activeAction === item.action && isRunning && pendingAction !== item.action}
+            item={item}
+            onClick={() => handleClick(item.action)}
+          />
+        ))}
       </ul>
     </div>
   );
+}
+
+function SystemActionButton({
+  collapsed,
+  disabled,
+  isPending,
+  isRunning: isActionRunning,
+  item,
+  onClick,
+  tooltipWarmRef,
+}: SystemActionButtonProps) {
+  const { icon: Icon, label, runningLabel, spin } = item;
+  const [hovered, setHovered] = useState(false);
+  const [tooltipAnchor, setTooltipAnchor] = useState<HTMLElement | null>(null);
+  const busy = isPending || isActionRunning;
+  const displayLabel = isActionRunning ? runningLabel : label;
+  const showTooltip = (event: MouseEvent<HTMLElement> | FocusEvent<HTMLElement>) => {
+    setHovered(true);
+    setTooltipAnchor(event.currentTarget);
+  };
+  const hideTooltip = () => {
+    setHovered(false);
+    setTooltipAnchor(null);
+  };
+
+  return (
+    <li
+      onMouseEnter={collapsed ? showTooltip : undefined}
+      onMouseLeave={collapsed ? hideTooltip : undefined}
+    >
+      <button
+        onClick={onClick}
+        disabled={disabled}
+        aria-busy={busy}
+        aria-label={collapsed ? displayLabel : undefined}
+        onFocus={collapsed ? showTooltip : undefined}
+        onBlur={collapsed ? hideTooltip : undefined}
+        type="button"
+        className={cn(
+          "group/action relative flex w-full items-center gap-3",
+          "px-5 py-2.5",
+          "font-mondwest text-display text-xs tracking-[0.1em]",
+          "whitespace-nowrap transition-colors cursor-pointer",
+          "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-midground",
+          busy
+            ? "text-midground"
+            : "text-text-secondary hover:text-midground",
+          "disabled:text-text-disabled disabled:cursor-not-allowed",
+        )}
+      >
+        {isPending ? (
+          <Spinner className="shrink-0 text-[0.875rem]" />
+        ) : isActionRunning && spin ? (
+          <Spinner className="shrink-0 text-[0.875rem]" />
+        ) : (
+          <Icon
+            className={cn(
+              "h-3.5 w-3.5 shrink-0",
+              isActionRunning && !spin && "animate-pulse",
+            )}
+          />
+        )}
+
+        <span className={cn(
+          "truncate transition-opacity duration-300",
+          collapsed ? "lg:opacity-0" : "lg:opacity-100",
+        )}>
+          {displayLabel}
+        </span>
+
+        <span
+          aria-hidden
+          className="absolute inset-y-0.5 left-1.5 right-1.5 bg-midground opacity-0 pointer-events-none transition-opacity duration-200 group-hover/action:opacity-5"
+        />
+
+        {busy && (
+          <span
+            aria-hidden
+            className="absolute left-0 top-0 bottom-0 w-px bg-midground"
+            style={{ mixBlendMode: "plus-lighter" }}
+          />
+        )}
+      </button>
+
+      {collapsed && hovered && tooltipAnchor && (
+        <SidebarTooltip anchor={tooltipAnchor} label={displayLabel} warmRef={tooltipWarmRef} />
+      )}
+    </li>
+  );
+}
+
+function SidebarIconWithTooltip({
+  children,
+  collapsed,
+  label,
+  tooltipWarmRef,
+}: SidebarIconWithTooltipProps) {
+  const [hovered, setHovered] = useState(false);
+  const [tooltipAnchor, setTooltipAnchor] = useState<HTMLElement | null>(null);
+  const showTooltip = (event: MouseEvent<HTMLDivElement>) => {
+    setHovered(true);
+    setTooltipAnchor(event.currentTarget);
+  };
+  const hideTooltip = () => {
+    setHovered(false);
+    setTooltipAnchor(null);
+  };
+
+  return (
+    <div
+      className={cn(
+        "relative w-fit",
+        collapsed && "group/icon",
+      )}
+      onMouseEnter={collapsed ? showTooltip : undefined}
+      onMouseLeave={collapsed ? hideTooltip : undefined}
+    >
+      {children}
+
+      {collapsed && (
+        <span
+          aria-hidden
+          className="absolute inset-y-0 inset-x-[-0.375rem] bg-midground opacity-0 pointer-events-none transition-opacity duration-200 group-hover/icon:opacity-5 hidden lg:block"
+        />
+      )}
+
+      {collapsed && hovered && tooltipAnchor && (
+        <SidebarTooltip anchor={tooltipAnchor} label={label} warmRef={tooltipWarmRef} />
+      )}
+    </div>
+  );
+}
+
+function GatewayDot({ collapsed, status, tooltipWarmRef }: GatewayDotProps) {
+  const { t } = useI18n();
+  const [hovered, setHovered] = useState(false);
+  const [tooltipAnchor, setTooltipAnchor] = useState<HTMLElement | null>(null);
+
+  const toneToColor: Record<string, string> = {
+    "text-success": "bg-success",
+    "text-warning": "bg-warning",
+    "text-destructive": "bg-destructive",
+    "text-muted-foreground": "bg-muted-foreground",
+  };
+
+  let color: string;
+  let label: string;
+
+  if (!status) {
+    color = "bg-midground/20";
+    label = t.status.gateway;
+  } else {
+    const gw = gatewayLine(status, t);
+    color = toneToColor[gw.tone] ?? "bg-muted-foreground";
+    label = `${t.status.gateway} ${gw.label}`;
+  }
+  const showTooltip = (event: MouseEvent<HTMLDivElement> | FocusEvent<HTMLDivElement>) => {
+    setHovered(true);
+    setTooltipAnchor(event.currentTarget);
+  };
+  const hideTooltip = () => {
+    setHovered(false);
+    setTooltipAnchor(null);
+  };
+
+  return (
+    <div
+      className={cn(
+        "hidden lg:flex py-3 pl-[1.625rem] transition-opacity duration-300",
+        collapsed ? "lg:opacity-100" : "lg:opacity-0 lg:h-0 lg:py-0 lg:overflow-hidden",
+      )}
+      role="status"
+      aria-label={label}
+      tabIndex={collapsed ? 0 : -1}
+      onMouseEnter={collapsed ? showTooltip : undefined}
+      onMouseLeave={collapsed ? hideTooltip : undefined}
+      onFocus={collapsed ? showTooltip : undefined}
+      onBlur={collapsed ? hideTooltip : undefined}
+    >
+      <span
+        aria-hidden
+        className={cn("h-1.5 w-1.5 rounded-full", color)}
+      />
+
+      {hovered && tooltipAnchor && (
+        <SidebarTooltip anchor={tooltipAnchor} label={label} warmRef={tooltipWarmRef} />
+      )}
+    </div>
+  );
+}
+
+function SidebarTooltip({ anchor, label, warmRef }: SidebarTooltipProps) {
+  const rect = anchor.getBoundingClientRect();
+  const sidebar = document.getElementById("app-sidebar");
+  const sidebarRight = sidebar?.getBoundingClientRect().right ?? rect.right;
+  const [isWarm, setIsWarm] = useState(false);
+
+  useEffect(() => {
+    if (!warmRef) {
+      setIsWarm(false);
+      return;
+    }
+    const now = Date.now();
+    setIsWarm(now - warmRef.current < 300);
+    warmRef.current = now;
+    return () => {
+      if (warmRef) warmRef.current = Date.now();
+    };
+  }, [warmRef]);
+
+  return createPortal(
+    <span
+      className={cn(
+        "fixed z-[100] pointer-events-none",
+        "px-2 py-1",
+        "bg-background-base/95 border border-current/20 backdrop-blur-sm shadow-lg",
+        "font-mondwest text-display text-xs tracking-[0.1em] text-midground uppercase",
+      )}
+      style={{
+        top: rect.top + rect.height / 2,
+        left: sidebarRight + 8,
+        transform: "translateY(-50%)",
+        opacity: isWarm ? 1 : undefined,
+        animation: isWarm ? "none" : "sidebar-tooltip-in 120ms ease-out",
+      }}
+    >
+      {label}
+    </span>,
+    document.body,
+  );
+}
+
+type TooltipWarmRef = React.RefObject<number>;
+
+interface GatewayDotProps {
+  collapsed: boolean;
+  status: StatusResponse | null;
+  tooltipWarmRef: TooltipWarmRef;
 }
 
 interface NavItem {
@@ -997,10 +1241,42 @@ interface NavItem {
   path: string;
 }
 
+interface SidebarIconWithTooltipProps {
+  children: ReactNode;
+  collapsed: boolean;
+  label: string;
+  tooltipWarmRef: TooltipWarmRef;
+}
+
 interface SidebarNavLinkProps {
   closeMobile: () => void;
+  collapsed: boolean;
   item: NavItem;
   t: Translations;
+  tooltipWarmRef: TooltipWarmRef;
+}
+
+interface SidebarSystemActionsProps {
+  collapsed: boolean;
+  onNavigate: () => void;
+  status: StatusResponse | null;
+  tooltipWarmRef: TooltipWarmRef;
+}
+
+interface SidebarTooltipProps {
+  anchor: HTMLElement;
+  label: string;
+  warmRef?: TooltipWarmRef;
+}
+
+interface SystemActionButtonProps {
+  collapsed: boolean;
+  disabled: boolean;
+  isPending: boolean;
+  isRunning: boolean;
+  item: SystemActionItem;
+  onClick: () => void;
+  tooltipWarmRef: TooltipWarmRef;
 }
 
 interface SystemActionItem {

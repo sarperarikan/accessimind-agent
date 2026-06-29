@@ -1,0 +1,184 @@
+{
+  "jobs": [
+    {
+      "id": "00ac81994f13",
+      "name": "AI Software Accessibility Bulletin",
+      "prompt": "You are Hermes Agent running on a VPS. Your task is to deliver a detailed Turkish-language AI/software/accessibility bulletin every Monday, Wednesday, and Friday at 09:00 to the user's Telegram DM.\n\nSteps:\n1. Use web_search to find the latest important news (last 3-5 days) in these areas:\n   - Artificial intelligence / LLMs / agents / models\n   - Software development (new frameworks, libraries, best practices, security)\n   - Accessibility / WCAG / web accessibility / assistive tech\n2. For each area pick 2-4 significant items. Use web_extract to read promising URLs and verify details. Do not fabricate facts.\n3. Write a Turkish bulletin with:\n   - A brief introduction\n   - Sections: \"\ud83e\udd16 Yapay Zeka\", \"\ud83d\udcbb Yaz\u0131l\u0131m Geli\u015ftirme\", \"\u267f Eri\u015filebilirlik\"\n   - 2-4 bullet items per section. Each item: headline, 1-2 sentence summary, source URL.\n   - A short \"\ud83d\udd2e K\u0131sa Bak\u0131\u015f\" take-away at the end.\n4. Deliver the final message with send_message to target 'telegram' (origin chat). Keep it informative but concise enough to read on mobile.\n\nImportant:\n- Use only real, verified sources. If web search fails or a source is paywalled, say so honestly.\n- Do not save anything to memory about the articles; the bulletin is the deliverable.\n- If no notable news is found for a section, state that instead of making up content.\n- Enabled toolsets: web, search, terminal (only for date/checks), send_message.",
+      "skills": [],
+      "skill": null,
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": null,
+      "no_agent": false,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 9 * * 1,3,5",
+        "display": "0 9 * * 1,3,5"
+      },
+      "schedule_display": "0 9 * * 1,3,5",
+      "repeat": {
+        "times": null,
+        "completed": 7
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-06-14T19:20:21.827706+00:00",
+      "next_run_at": "2026-06-29T09:00:00+00:00",
+      "last_run_at": "2026-06-26T09:00:52.242291+00:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": null,
+      "deliver": "origin",
+      "origin": {
+        "platform": "telegram",
+        "chat_id": "8447857263",
+        "chat_name": "Sarper ar\u0131kan",
+        "thread_id": null
+      },
+      "enabled_toolsets": [
+        "web",
+        "search",
+        "send_message"
+      ],
+      "workdir": null
+    },
+    {
+      "id": "896ceb78f4c5",
+      "name": "Gunluk AI Haber Bulteni Email",
+      "prompt": "You are Hermes Agent on a VPS. Your task is to compose and send a fresh, daily Turkish-language AI news bulletin to sarperarikan@gmail.com.\n\nCritical rules:\n- Every day you MUST search the web for genuinely NEW AI news from the last 24-48 hours. Do not recycle yesterday's stories or reuse the same static examples.\n- Use at least 3 distinct live search queries (e.g., \"AI news today\", \"latest AI model releases\", \"AI policy regulation news\").\n- Verify that each headline/event you include has a recent publication date (preferably the same day or previous day).\n- Structure the email with clear headings and bullet points for accessibility: \"One Cikan Haberler\", \"Modeller ve Araclar\", \"Arastirma ve Teknik\", \"Politika ve Toplum\".\n- Include a source link for each item.\n- End with: \"Bu bulten Hermes Agent tarafindan otomatik derlendi.\"\n- Send using the local himalaya CLI: pipe the composed plain-text UTF-8 message to `himalaya template send` using the gmail account configured at /root/.config/himalaya/config.toml.\n- Subject must be \"Gunluk AI Bulteni - YYYY-MM-DD\" for the current UTC date.\n- If no fresh news is found, explicitly say so in the email instead of fabricating content.",
+      "skills": [],
+      "skill": null,
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": null,
+      "no_agent": false,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 8 * * *",
+        "display": "0 8 * * *"
+      },
+      "schedule_display": "0 8 * * *",
+      "repeat": {
+        "times": null,
+        "completed": 13
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-06-15T11:24:13.615633+00:00",
+      "next_run_at": "2026-06-29T08:00:00+00:00",
+      "last_run_at": "2026-06-28T08:03:17.840387+00:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": null,
+      "deliver": "origin",
+      "origin": null,
+      "enabled_toolsets": [
+        "web",
+        "search",
+        "terminal",
+        "file"
+      ],
+      "workdir": null,
+      "fire_claim": null
+    },
+    {
+      "id": "4695b7b41612",
+      "name": "WordPress AI Erisilebilirlik Makaleleri",
+      "prompt": "You are Hermes Agent running on a VPS. Your task is to publish original, detailed, non-repeating, current-source Turkish articles to the WordPress site erisilebilirai.com every Monday, Wednesday, and Friday at 09:00 UTC.\n\n## Content Scope (geni\u015fletilmi\u015f)\nYaln\u0131zca eri\u015filebilirlik de\u011fil \u2014 \u015fu konular\u0131n tamam\u0131nda i\u00e7erik \u00fcret:\n1. **AI Ara\u00e7lar\u0131** (ID: 64) \u2014 AI ara\u00e7lar\u0131n\u0131n kullan\u0131m\u0131, pratik rehberler, yeni ara\u00e7 tan\u0131t\u0131mlar\u0131\n2. **Nas\u0131l Yap\u0131l\u0131r?** (ID: 62) \u2014 Ad\u0131m ad\u0131m rehberler, pratik how-to i\u00e7erikleri\n3. **Haberler** (ID: 128) \u2014 G\u00fcncel AI ve teknoloji haberleri, son geli\u015fmeler\n4. **Genel AI** (ID: 129) \u2014 Yapay zeka hakk\u0131nda genel bilgilendirmeler, kavramlar, e\u011fitimler\n5. **Eri\u015filebilirlik ve AI** (ID: 130) \u2014 Eri\u015filebilirlikte AI \u00e7\u00f6z\u00fcmleri, WCAG, yard\u0131mc\u0131 teknolojiler\n\n## Kategori Rotasyonu\nHer \u00e7al\u0131\u015ft\u0131rmada 2 makale yay\u0131nla, kategorileri rotasyonla:\n- **Pazartesi**: Haberler (128) + AI Ara\u00e7lar\u0131 (64)\n- **\u00c7ar\u015famba**: Genel AI (129) + Eri\u015filebilirlik ve AI (130)\n- **Cuma**: Nas\u0131l Yap\u0131l\u0131r? (62) + bir \u00f6nceki rotasyondan farkl\u0131 bir kategori (s\u0131radaki eksik kategori)\n\n2 haftal\u0131k d\u00f6ng\u00fcde 5 kategori de e\u015fit temsil edilsin.\n\n## Kurallar\n1. WordPress REST API ile son 30 yaz\u0131y\u0131 \u00e7ek, ba\u015fl\u0131k ve konu tekrar\u0131 yapma. Daha \u00f6nce yay\u0131nlanm\u0131\u015f bir konuyu tekrar i\u015fleme.\n2. G\u00fcncel kaynaklar kullan (son 24-72 saat): Apple, Google, Microsoft, OpenAI, Anthropic, Meta AI, W3C WAI, WebAIM, Nature, Forbes, TechCrunch, The Verge, Wired, Business Wire, arXiv, Google AI Blog, Hugging Face, AI News, VentureBeat, NPR, CES, Accessibility.com.\n3. Her makale en az 800 kelime, Gutenberg blok HTML format\u0131nda, kaynak ba\u011flant\u0131lar\u0131 i\u00e7ermeli.\n4. Etiketler: konuya uygun etiketleri otomatik \u00e7\u00f6z\u00fcmle (yapay zeka, AI, erisilebilir ai, yapay zeka haberleri + konuya \u00f6zel etiketler).\n5. Yaz\u0131lar\u0131 \u00f6nce draft olarak g\u00f6nder, ard\u0131ndan publish durumuna al.\n6. Kullan\u0131c\u0131 ad\u0131: admin, uygulama parolas\u0131: n9MO wYi1 xG9F cDJU jwSd I3K4, site: https://erisilebilirai.com\n7. Config dosyas\u0131: ~/.hermes/skills/productivity/wordpress-auto-publisher/templates/config.yaml\n8. Script: ~/.hermes/skills/productivity/wordpress-auto-publisher/scripts/wordpress_auto_publisher.py\n9. \u0130\u015flem sonunda kullan\u0131c\u0131ya yay\u0131nlanan makalelerin ba\u015fl\u0131klar\u0131n\u0131, kategorilerini ve URL'lerini bildir.\n10. Hi\u00e7bir zaman ayn\u0131 ba\u015fl\u0131kla veya ayn\u0131 konuyla ikinci bir yaz\u0131 yay\u0131nlama. Her \u00e7al\u0131\u015ft\u0131rmada konular\u0131 ve a\u00e7\u0131lar\u0131 de\u011fi\u015ftir.\n11. Yeni bir cron job olu\u015fturma; sadece g\u00f6revini tamamla ve rapor ver.\n12. Spam/kumar i\u00e7erikli eski yaz\u0131lara dokunma.\n\n## \u00d6NEML\u0130: \u0130\u00e7erik \u00d6zg\u00fcnl\u00fc\u011f\u00fc ve Konu Ba\u011fl\u0131l\u0131\u011f\u0131\n- Ayn\u0131 konunun farkl\u0131 versiyonlar\u0131n\u0131 olu\u015ftur: \u00d6rne\u011fin \"AI ara\u00e7lar\u0131\" konusunu bir hafta \"g\u00f6rme engelli i\u00e7in AI ara\u00e7lar\u0131\", di\u011fer hafta \"i\u015fitme engelli i\u00e7in AI ara\u00e7lar\u0131\", bir sonraki hafta \"hareket engelli i\u00e7in AI ara\u00e7lar\u0131\" olarak i\u015fle.\n- Konu ba\u015fl\u0131\u011f\u0131 farkl\u0131 olsa da temalar birbirini tekrar etmesin. Her makale benzersiz bir a\u00e7\u0131 getirmeli.\n- Engelli bireyler i\u00e7in en g\u00fcncel AI haberleri ve \u00e7\u00f6z\u00fcmlerini \u00f6nceliklendir.\n- Yeni \u00e7\u0131kan AI \u00e7\u00f6z\u00fcmlerinin engelli bireyler i\u00e7in pratik kullan\u0131m\u0131n\u0131 anlat.\n- AI ara\u00e7lar\u0131n\u0131n kullan\u0131m rehberleri olu\u015ftur: ad\u0131m ad\u0131m, ekran okuyucu kullananlar i\u00e7in eri\u015filebilir \u015fekilde.\n\n## SPAM KORUMASI (KR\u0130T\u0130K)\n- Kategori ID 1 (Uncategorized) alt\u0131nda YAZI YAYINLAMA.\n- Kumar, casino, bahis, mostbet, 1win, pinco, betandreas, glory casino, aviator, trading, forex gibi SPAM konularda ASLA yaz\u0131 yazma.\n- Her makalenin kategorisi do\u011fru ayarlanm\u0131\u015f olmal\u0131: 64, 62, 128, 129, veya 130 d\u0131\u015f\u0131nda kategori kullanma.\n- E\u011fer WordPress'te kategori 1 (Uncategorized) alt\u0131nda spam yaz\u0131 g\u00f6r\u00fcrsen, bunlar\u0131 sil.\n- Yaz\u0131 yay\u0131nla, ama ASLA spam i\u00e7erik \u00fcretme veya spam yaz\u0131lar\u0131n\u0131n yay\u0131nlanmas\u0131na izin verme.",
+      "skills": [],
+      "skill": null,
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": null,
+      "no_agent": false,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 9 * * 1,3,5",
+        "display": "0 9 * * 1,3,5"
+      },
+      "schedule_display": "0 9 * * 1,3,5",
+      "repeat": {
+        "times": null,
+        "completed": 4
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-06-15T15:49:45.799829+00:00",
+      "next_run_at": "2026-06-29T09:00:00+00:00",
+      "last_run_at": "2026-06-26T09:06:43.844104+00:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": "no delivery target resolved for deliver=origin",
+      "deliver": "origin",
+      "origin": null,
+      "enabled_toolsets": [
+        "web",
+        "search",
+        "terminal",
+        "file"
+      ],
+      "workdir": null
+    },
+    {
+      "id": "51e64502ceb3",
+      "name": "Arcelik WCAG Analiz Raporu",
+      "prompt": "Arcelik.com.tr WCAG 2.2 AA eri\u015filebilirlik analiz raporu \u00e7al\u0131\u015ft\u0131rma zaman\u0131.\n\n\u015eu komutu \u00e7al\u0131\u015ft\u0131r:\n```\npython3 -u /usr/local/bin/arcelik-wcag-cron.py\n```\n\nBu script:\n1. Selenium + Chrome ile www.arcelik.com.tr'nin 20 alt sayfas\u0131n\u0131 tarar\n2. Her sayfa i\u00e7in WCAG 2.2 AA eri\u015filebilirlik metrikleri toplar (heading hiyerar\u015fisi, alt-text, form label, ARIA, skip-link, dokunmatik hedefler, iframe, viewport, lang, vb.)\n3. Ollama glm-5.2:cloud ile detayl\u0131 WCAG 2.2 AA analizi yapar\n4. OpenRouter Cohere North Mini Code (free) ile ikinci bir eri\u015filebilirlik analizi yapar\n5. \u0130ki LLM analizini birle\u015ftirip detayl\u0131 markdown+HTML rapor \u00fcretir\n6. Himalaya CLI ile raporu HTML format\u0131nda sarperarikan@gmail.com'a e-posta olarak g\u00f6nderir\n\nSonu\u00e7 olarak e-posta g\u00f6nderildi\u011fini ve raporun haz\u0131r oldu\u011funu bildir.",
+      "skills": [],
+      "skill": null,
+      "model": null,
+      "provider": null,
+      "provider_snapshot": "custom",
+      "model_snapshot": "glm-5.2:cloud",
+      "base_url": null,
+      "script": null,
+      "no_agent": false,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 6 * * *",
+        "display": "0 6 * * *"
+      },
+      "schedule_display": "0 6 * * *",
+      "repeat": {
+        "times": null,
+        "completed": 1
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-06-28T21:27:56.160394+00:00",
+      "next_run_at": "2026-06-30T06:00:00+00:00",
+      "last_run_at": "2026-06-29T06:10:27.907170+00:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": null,
+      "deliver": "origin",
+      "origin": {
+        "platform": "telegram",
+        "chat_id": "8447857263",
+        "chat_name": "Sarper ar\u0131kan",
+        "thread_id": null,
+        "user_id": "8447857263"
+      },
+      "enabled_toolsets": [
+        "terminal"
+      ],
+      "workdir": null,
+      "fire_claim": null
+    }
+  ],
+  "updated_at": "2026-06-29T06:10:27.907979+00:00"
+}

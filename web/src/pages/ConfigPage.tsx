@@ -4,7 +4,6 @@ import {
   Download,
   FormInput,
   RotateCcw,
-  Save,
   Search,
   Upload,
   X,
@@ -39,15 +38,15 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { getNestedValue, setNestedValue } from "@/lib/nested";
-import { useToast } from "@/hooks/useToast";
-import { Toast } from "@/components/Toast";
+import { useToast } from "@nous-research/ui/hooks/use-toast";
+import { Toast } from "@nous-research/ui/ui/components/toast";
 import { AutoField } from "@/components/AutoField";
 import { Button } from "@nous-research/ui/ui/components/button";
 import { ListItem } from "@nous-research/ui/ui/components/list-item";
 import { Spinner } from "@nous-research/ui/ui/components/spinner";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardHeader, CardTitle } from "@nous-research/ui/ui/components/card";
+import { ConfirmDialog } from "@nous-research/ui/ui/components/confirm-dialog";
+import { Input } from "@nous-research/ui/ui/components/input";
 import { Badge } from "@nous-research/ui/ui/components/badge";
 import { useI18n } from "@/i18n";
 import { usePageHeader } from "@/contexts/usePageHeader";
@@ -121,40 +120,6 @@ export default function ConfigPage() {
   const [configPath, setConfigPath] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState<string>("");
   const [confirmReset, setConfirmReset] = useState(false);
-  const [setupOS, setSetupOS] = useState<'linux' | 'windows'>('linux');
-  const [licenseStatus, setLicenseStatus] = useState<{ activated: boolean; license_key: string; license_info: any } | null>(null);
-  const [newLicenseKey, setNewLicenseKey] = useState("");
-  const [activating, setActivating] = useState(false);
-
-  const fetchLicenseStatus = () => {
-    api.getLicenseStatus()
-      .then(setLicenseStatus)
-      .catch(() => {});
-  };
-
-  useEffect(() => {
-    fetchLicenseStatus();
-  }, []);
-
-  const handleActivateLicense = async () => {
-    if (!newLicenseKey.trim() || newLicenseKey.trim().length < 8) {
-      showToast("Lütfen geçerli bir lisans anahtarı girin.", "error");
-      return;
-    }
-    setActivating(true);
-    try {
-      const res = await api.activateLicense({ license_key: newLicenseKey.trim() });
-      if (res.success) {
-        showToast("Lisans başarıyla aktifleştirildi!", "success");
-        setNewLicenseKey("");
-        fetchLicenseStatus();
-      }
-    } catch (e: any) {
-      showToast(`Lisans aktivasyonu başarısız: ${e.message || e}`, "error");
-    } finally {
-      setActivating(false);
-    }
-  };
   const { toast, showToast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { t } = useI18n();
@@ -212,9 +177,19 @@ export default function ConfigPage() {
       .getDefaults()
       .then(setDefaults)
       .catch(() => {});
+    // getConfigRaw is profile-scoped (fetchJSON appends ?profile=), so its
+    // `path` reflects the switched profile's config.yaml. /api/status's
+    // config_path is machine-global (the dashboard's own profile) — wrong
+    // header under the global profile switcher, so it's only a fallback.
+    api
+      .getConfigRaw()
+      .then((resp) => {
+        if (resp.path) setConfigPath(resp.path);
+      })
+      .catch(() => {});
     api
       .getStatus()
-      .then((resp) => setConfigPath(resp.config_path))
+      .then((resp) => setConfigPath((prev) => prev ?? resp.config_path))
       .catch(() => {});
   }, []);
 
@@ -298,7 +273,6 @@ export default function ConfigPage() {
     try {
       await api.saveConfig(config);
       showToast(t.config.configSaved, "success");
-      window.dispatchEvent(new CustomEvent("accessimind-config-saved"));
     } catch (e) {
       showToast(`${t.config.failedToSave}: ${e}`, "error");
     } finally {
@@ -311,7 +285,6 @@ export default function ConfigPage() {
     try {
       await api.saveConfigRaw(yamlText);
       showToast(t.config.yamlConfigSaved, "success");
-      window.dispatchEvent(new CustomEvent("accessimind-config-saved"));
       api
         .getConfig()
         .then(setConfig)
@@ -421,7 +394,7 @@ export default function ConfigPage() {
                 category={cat}
                 className="h-4 w-4 text-muted-foreground"
               />
-              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <span className="font-mondwest text-display text-xs font-semibold tracking-wider text-muted-foreground">
                 {prettyCategoryName(cat)}
               </span>
               <div className="flex-1 border-t border-border" />
@@ -429,7 +402,7 @@ export default function ConfigPage() {
           )}
           {showSection && (
             <div className="flex items-center gap-2 pt-4 pb-2 first:pt-0">
-              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <span className="font-mondwest text-display text-xs font-semibold tracking-wider text-muted-foreground">
                 {section.replace(/_/g, " ")}
               </span>
               <div className="flex-1 border-t border-border" />
@@ -448,229 +421,19 @@ export default function ConfigPage() {
     });
   };
 
-  const setupOrigin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:9119';
-
   return (
     <div className="flex flex-col gap-4">
       <PluginSlot name="config:top" />
-
-      {/* AccessiMind Product Installation & Server Deployment Panel */}
-      <Card className="border border-primary/25 bg-primary/5 shadow-md relative overflow-hidden">
-        <div className="absolute top-0 right-0 p-4 opacity-10">
-          <Brain className="h-20 w-20 text-primary animate-pulse" />
-        </div>
-        <CardHeader className="py-4 px-5">
-          <CardTitle className="text-sm sm:text-base flex items-center gap-2 text-foreground font-bold tracking-wide uppercase font-mondwest">
-            <Sparkles className="h-4 w-4 text-primary animate-bounce" />
-            AccessiMind Product Installation & Server Deployment
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="px-5 pb-5 pt-0 text-[11px] sm:text-xs">
-          <p className="text-muted-foreground leading-relaxed mb-4">
-            AccessiMind has been built as a production-grade, highly portable agent product that can be deployed on any server.
-            Use the automated setup system to initialize the Python venv, backend service dependencies, and compile the Vite dashboard with a single command.
-          </p>
-
-          <div className="flex gap-1.5 mb-4 bg-muted/40 p-1 rounded-md max-w-[280px] border border-border/40">
-            <button
-              onClick={() => setSetupOS('linux')}
-              className={`flex-1 text-[10px] font-bold uppercase tracking-wider py-1 px-3 rounded transition-all cursor-pointer ${
-                setupOS === 'linux'
-                  ? 'bg-primary text-primary-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              Linux / macOS
-            </button>
-            <button
-              onClick={() => setSetupOS('windows')}
-              className={`flex-1 text-[10px] font-bold uppercase tracking-wider py-1 px-3 rounded transition-all cursor-pointer ${
-                setupOS === 'windows'
-                  ? 'bg-primary text-primary-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              Windows (PowerShell)
-            </button>
-          </div>
-
-          {setupOS === 'linux' ? (
-            <div className="grid sm:grid-cols-2 gap-4 mt-2">
-              <div className="border border-border/60 p-3 bg-muted/20 rounded-md">
-                <span className="font-semibold block mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
-                  One-Click Automated Installer (Linux / macOS)
-                </span>
-                <p className="text-[10px] text-muted-foreground mb-2">
-                  Download and run the installer script on any clean server to set up the entire environment automatically:
-                </p>
-                <div className="bg-black/80 font-mono text-[10px] p-2 border border-border/50 text-emerald-400 select-all rounded break-all whitespace-pre-wrap font-semibold">
-                  {`curl -LsSf ${setupOrigin}/setup-accessimind.sh -o setup.sh && chmod +x setup.sh && ./setup.sh --auto`}
-                </div>
-              </div>
-
-              <div className="border border-border/60 p-3 bg-muted/20 rounded-md">
-                <span className="font-semibold block mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
-                  Re-running Installation Flow
-                </span>
-                <p className="text-[10px] text-muted-foreground mb-2">
-                  Re-run the setup anytime locally on this server to refresh virtual environments, clean state, and re-compile assets:
-                </p>
-                <div className="bg-black/80 font-mono text-[10px] p-2 border border-border/50 text-emerald-400 select-all rounded break-all whitespace-pre-wrap font-semibold">
-                  ./setup-accessimind.sh --auto
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="grid sm:grid-cols-2 gap-4 mt-2">
-              <div className="border border-border/60 p-3 bg-muted/20 rounded-md">
-                <span className="font-semibold block mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
-                  One-Click Automated Installer (Windows PowerShell)
-                </span>
-                <p className="text-[10px] text-muted-foreground mb-2">
-                  Download and run the installer script via PowerShell to set up the entire environment automatically:
-                </p>
-                <div className="bg-black/80 font-mono text-[10px] p-2 border border-border/50 text-emerald-400 select-all rounded break-all whitespace-pre-wrap font-semibold">
-                  {`powershell -ExecutionPolicy Bypass -c "irm ${setupOrigin}/setup-accessimind.ps1 | iex"`}
-                </div>
-              </div>
-
-              <div className="border border-border/60 p-3 bg-muted/20 rounded-md">
-                <span className="font-semibold block mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
-                  Re-running Installation Flow
-                </span>
-                <p className="text-[10px] text-muted-foreground mb-2">
-                  Re-run the setup anytime locally on this server to refresh virtual environments, clean state, and re-compile assets:
-                </p>
-                <div className="bg-black/80 font-mono text-[10px] p-2 border border-border/50 text-emerald-400 select-all rounded break-all whitespace-pre-wrap font-semibold">
-                  .\setup-accessimind.ps1 -Auto
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div className="mt-4 flex flex-wrap gap-2">
-            {setupOS === 'linux' ? (
-              <Button
-                size="xs"
-                outlined
-                onClick={() => {
-                  window.open(`${setupOrigin}/setup-accessimind.sh`, "_blank");
-                }}
-                prefix={<Download className="h-3 w-3" />}
-              >
-                Get Installer Script (setup-accessimind.sh)
-              </Button>
-            ) : (
-              <Button
-                size="xs"
-                outlined
-                onClick={() => {
-                  window.open(`${setupOrigin}/setup-accessimind.ps1`, "_blank");
-                }}
-                prefix={<Download className="h-3 w-3" />}
-              >
-                Get Installer Script (setup-accessimind.ps1)
-              </Button>
-            )}
-            <Button
-              size="xs"
-              outlined
-              onClick={() => {
-                alert("Automated Setup Wizard has been successfully configured for multi-server deployment! You can copy the installer command to deploy AccessiMind on other hosts.");
-              }}
-              prefix={<RefreshCw className="h-3 w-3" />}
-            >
-              Verify Setup Capabilities
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* License & Product Activation Card */}
-      <Card className="border border-primary/20 bg-muted/10 relative overflow-hidden">
-        <CardHeader className="py-4 px-5">
-          <CardTitle className="text-sm sm:text-base flex items-center gap-2 text-foreground font-bold tracking-wide uppercase font-mondwest">
-            <Lock className="h-4 w-4 text-primary" />
-            Product License & Activation Management
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="px-5 pb-5 pt-0 text-[11px] sm:text-xs">
-          {licenseStatus ? (
-            <div className="grid sm:grid-cols-2 gap-6">
-              <div className="space-y-3">
-                <div>
-                  <span className="font-semibold block text-[10px] uppercase tracking-wider text-muted-foreground">Lisans Durumu</span>
-                  <div className="mt-1 flex items-center gap-2">
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                      licenseStatus.activated 
-                        ? 'bg-emerald-950/40 text-emerald-400 border border-emerald-800/40' 
-                        : 'bg-red-950/40 text-red-400 border border-red-800/40'
-                    }`}>
-                      {licenseStatus.activated ? "AKTİF" : "LİSANSSIZ"}
-                    </span>
-                    <span className="text-muted-foreground">
-                      {licenseStatus.license_info?.license_type}
-                    </span>
-                  </div>
-                </div>
-
-                <div>
-                  <span className="font-semibold block text-[10px] uppercase tracking-wider text-muted-foreground">Aktif Lisans Anahtarı</span>
-                  <span className="font-mono text-foreground mt-1 block">
-                    {licenseStatus.license_key || "Bulunamadı"}
-                  </span>
-                </div>
-
-                <div>
-                  <span className="font-semibold block text-[10px] uppercase tracking-wider text-muted-foreground">Destek Durumu</span>
-                  <span className="text-foreground mt-1 block">
-                    {licenseStatus.license_info?.support_active ? "Etkin (Ömür Boyu)" : "Etkin Değil"}
-                  </span>
-                </div>
-              </div>
-
-              <div className="space-y-3 border-t sm:border-t-0 sm:border-l border-border/40 pt-4 sm:pt-0 sm:pl-6">
-                <span className="font-semibold block text-[10px] uppercase tracking-wider text-muted-foreground">Yeni Lisans Anahtarı Tanımla</span>
-                <p className="text-[10px] text-muted-foreground">
-                  Farklı bir lisans anahtarı veya satın alma kodu (Purchase Code) girmek için aşağıdaki kutuyu kullanın:
-                </p>
-                <div className="flex gap-2">
-                  <Input
-                    type="text"
-                    placeholder="örn: XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX"
-                    value={newLicenseKey}
-                    onChange={(e) => setNewLicenseKey(e.target.value)}
-                    className="h-8 text-xs font-sans font-semibold tracking-wider flex-1"
-                  />
-                  <Button
-                    size="xs"
-                    onClick={handleActivateLicense}
-                    disabled={activating}
-                    className="h-8 uppercase font-bold tracking-wider"
-                  >
-                    {activating ? "AKTİFLEŞTİRİLİYOR" : "AKTİFLEŞTİR"}
-                  </Button>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="flex items-center justify-center py-4">
-              <Spinner className="text-xs text-primary" />
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
       <Toast toast={toast} />
 
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
-          <Settings2 className="h-4 w-4 text-muted-foreground" />
-          <code className="text-xs text-muted-foreground bg-muted/50 px-2 py-0.5">
+      <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <div className="flex min-w-0 items-center gap-2 sm:flex-1">
+          <Settings2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <code className="min-w-0 flex-1 break-words text-xs text-muted-foreground bg-muted/50 px-2 py-0.5">
             {configPath ?? t.config.configPath}
           </code>
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5 sm:shrink-0">
           <Button
             ghost
             size="icon"
@@ -732,18 +495,18 @@ export default function ConfigPage() {
           {yamlMode ? (
             <Button
               size="sm"
+              className="uppercase"
               onClick={handleYamlSave}
               disabled={yamlSaving}
-              prefix={<Save />}
             >
               {yamlSaving ? t.common.saving : t.common.save}
             </Button>
           ) : (
             <Button
               size="sm"
+              className="uppercase"
               onClick={handleSave}
               disabled={saving}
-              prefix={<Save />}
             >
               {saving ? t.common.saving : t.common.save}
             </Button>
@@ -780,13 +543,13 @@ export default function ConfigPage() {
             <div className="sm:sticky sm:top-4">
               <div className="flex flex-col border border-border bg-muted/20">
                 <div className="hidden sm:flex items-center gap-2 px-3 py-2 border-b border-border">
-                  <Filter className="h-3 w-3 text-muted-foreground" />
-                  <span className="font-mondwest text-[0.65rem] tracking-[0.12em] uppercase text-muted-foreground">
+                  <Filter className="h-3 w-3 text-text-tertiary" />
+                  <span className="font-mondwest text-display text-xs tracking-[0.12em] text-text-secondary">
                     {t.config.filters}
                   </span>
                 </div>
 
-                <div className="hidden sm:block px-3 pt-2 pb-1 font-mondwest text-[0.6rem] tracking-[0.12em] uppercase text-muted-foreground/70">
+                <div className="hidden sm:block px-3 pt-2 pb-1 font-mondwest text-display text-xs tracking-[0.12em] text-text-tertiary">
                   {t.config.sections}
                 </div>
 
@@ -802,7 +565,7 @@ export default function ConfigPage() {
                           setSearchQuery("");
                           setActiveCategory(cat);
                         }}
-                        className="rounded-sm whitespace-nowrap px-2 py-1 text-[11px]"
+                        className="rounded-none whitespace-nowrap px-2 py-1 text-xs"
                       >
                         <CategoryIcon
                           category={cat}
@@ -812,10 +575,10 @@ export default function ConfigPage() {
                           {prettyCategoryName(cat)}
                         </span>
                         <span
-                          className={`text-[10px] tabular-nums ${
+                          className={`text-xs tabular-nums ${
                             isActive
-                              ? "text-foreground/60"
-                              : "text-muted-foreground/50"
+                              ? "text-text-secondary"
+                              : "text-text-tertiary"
                           }`}
                         >
                           {categoryCounts[cat] || 0}
@@ -837,7 +600,7 @@ export default function ConfigPage() {
                       <Search className="h-4 w-4" />
                       {t.config.searchResults}
                     </CardTitle>
-                    <Badge tone="secondary" className="text-[10px]">
+                    <Badge tone="secondary" className="text-xs">
                       {searchMatchedFields.length}{" "}
                       {t.config.fields.replace(
                         "{s}",
@@ -868,7 +631,7 @@ export default function ConfigPage() {
                       />
                       {prettyCategoryName(activeCategory)}
                     </CardTitle>
-                    <Badge tone="secondary" className="text-[10px]">
+                    <Badge tone="secondary" className="text-xs">
                       {activeFields.length}{" "}
                       {t.config.fields.replace(
                         "{s}",
